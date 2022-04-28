@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.AD\Es.Riam.Gnoss.AD.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.CL\Es.Riam.Gnoss.CL.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Elementos\Es.Riam.Gnoss.Elementos.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.ExportarImportar\Es.Riam.Gnoss.ExportarImportar.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Logica\Es.Riam.Gnoss.Logica.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Recursos\Es.Riam.Gnoss.Recursos.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.RedesSociales\Es.Riam.Gnoss.RedesSociales.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Servicios\Es.Riam.Gnoss.Servicios.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.UtilServiciosWeb\Es.Riam.Gnoss.UtilServiciosWeb.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Util\Es.Riam.Gnoss.Util.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Web.Controles\Es.Riam.Gnoss.Web.Controles.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Gnoss.Web.MVC.Models\Es.Riam.Gnoss.Web.MVC.Models.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Interfaces\Es.Riam.Interfaces.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Semantica\Es.Riam.Semantica.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Util\Es.Riam.Util.csproj" />
+    <ProjectReference Include="..\..\Gnoss.Commons\Es.Riam.Web.Util\Es.Riam.Web.Util.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -12,7 +12,7 @@ Configuración estandar de esta aplicación en el archivo docker-compose.yml:
 
 ```yml
 login:
-    image: login
+    image: docker.gnoss.com/login
     env_file: .env
     ports:
      - ${puerto_login}:80

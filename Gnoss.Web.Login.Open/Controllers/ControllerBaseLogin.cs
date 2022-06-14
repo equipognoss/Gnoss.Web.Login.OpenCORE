@@ -229,7 +229,7 @@ namespace Gnoss.Web.Login
             usuarioCN.Dispose();
 
             CrearCookieUsuarioActual(pUsuarioID.ToString(), pLogin, pIdioma, DominioAplicacion);
-            CrearCookiePerfiles(pPersonaID, pNombreCorto, DominioAplicacion);
+            CrearCookiePerfiles(pPersonaID, pNombreCorto, "");
         }
 
 
@@ -376,7 +376,7 @@ namespace Gnoss.Web.Login
             //Cabeceras para poder recibir cookies de terceros
             mHttpContextAccessor.HttpContext.Response.Headers.Add("p3p", "CP=\"IDC DSP COR ADM DEVi TAIi PSA PSD IVAi IVDi CONi HIS OUR IND CNT\"");
 
-            if (!string.IsNullOrEmpty(pDominio) && UtilCookies.FromLegacyCookieString(Request.Cookies[DominioAplicacion + "_Dominios"]).ContainsKey("pDominio"))
+            if (!string.IsNullOrEmpty(pDominio) && UtilCookies.FromLegacyCookieString(Request.Cookies["_Dominios"], mEntityContext).ContainsKey("pDominio"))
             {
                 //Quito www.
                 if (pDominio.Contains("//www."))
@@ -389,7 +389,7 @@ namespace Gnoss.Web.Login
 
             //establezco la validez de la cookie que será de 1 día
             options.Expires = DateTime.Now.AddDays(1);
-            mHttpContextAccessor.HttpContext.Response.Cookies.Append(DominioAplicacion + "_Dominios", UtilCookies.ToLegacyCookieString(cookieValues), options);
+            mHttpContextAccessor.HttpContext.Response.Cookies.Append("_Dominios", UtilCookies.ToLegacyCookieString(cookieValues, mEntityContext), options);
         }
 
         /// <summary>
@@ -406,7 +406,7 @@ namespace Gnoss.Web.Login
             //Creo la cookie para este usuario
             CookieOptions cookieUsuarioOptions = new CookieOptions();
 
-            if (!mHttpContextAccessor.HttpContext.Request.Cookies.ContainsKey(pDominioAplicacion + "_UsuarioActual"))
+            if (!mHttpContextAccessor.HttpContext.Request.Cookies.ContainsKey("_UsuarioActual"))
             {
                 existe = false;
             }
@@ -426,7 +426,7 @@ namespace Gnoss.Web.Login
 
             //Añado la cookie al navegador
             cookieUsuarioOptions.Expires = caduca;
-            mHttpContextAccessor.HttpContext.Response.Cookies.Append(pDominioAplicacion + "_UsuarioActual", UtilCookies.ToLegacyCookieString(cookieUsuarioValues), cookieUsuarioOptions);
+            mHttpContextAccessor.HttpContext.Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookieUsuarioValues, mEntityContext), cookieUsuarioOptions);
 
             CookieOptions usuarioLogueadoOptions = new CookieOptions();
 
@@ -499,7 +499,7 @@ namespace Gnoss.Web.Login
             sw = null;
 
             //Actualizo la cookie de rewrite
-            mHttpContextAccessor.HttpContext.Response.Cookies.Append(pDominioAplicacion + "_rewrite", UtilCookies.ToLegacyCookieString(cookieRewriteValues), cookieRewriteoptions);
+            mHttpContextAccessor.HttpContext.Response.Cookies.Append("_rewrite", UtilCookies.ToLegacyCookieString(cookieRewriteValues, mEntityContext), cookieRewriteoptions);
         }
 
         /// <summary>

@@ -28,6 +28,7 @@ using System.Configuration;
 using System.Data;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
 using System.Web;
@@ -107,9 +108,9 @@ namespace Gnoss.Web.Login
         protected string ObtenerDominioIP()
         {
             string path = null;
-            if (Request.Path.HasValue)
+            if (Request.PathBase.HasValue)
             {
-                path = Request.Path.Value.Substring(0, Request.Path.Value.LastIndexOf("/"));
+                path = Request.PathBase;
             }
 
             string dominio = $"{Request.Scheme}://{Request.Host}{path}";
@@ -426,6 +427,8 @@ namespace Gnoss.Web.Login
 
             //Añado la cookie al navegador
             cookieUsuarioOptions.Expires = caduca;
+            cookieUsuarioOptions.SameSite = SameSiteMode.None;
+            cookieUsuarioOptions.Secure = true;
             mHttpContextAccessor.HttpContext.Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookieUsuarioValues, mEntityContext), cookieUsuarioOptions);
 
             CookieOptions usuarioLogueadoOptions = new CookieOptions();

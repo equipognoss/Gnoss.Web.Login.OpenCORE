@@ -2,7 +2,7 @@
 
 # Gnoss.Web.Login.OpenCORE
 
-![](https://github.com/equipognoss/Gnoss.Web.Login/workflows/BuildLogin/badge.svg)
+![](https://github.com/equipognoss/Gnoss.Web.Login.OpenCORE/workflows/BuildWeb/badge.svg)
 
 Aplicación Web que se encarga de autenticar al usuario, validar su contraseña y enviar las credenciales a la Web. 
 

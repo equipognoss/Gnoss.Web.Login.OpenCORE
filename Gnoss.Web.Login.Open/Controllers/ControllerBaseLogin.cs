@@ -427,8 +427,12 @@ namespace Gnoss.Web.Login
 
             //Añado la cookie al navegador
             cookieUsuarioOptions.Expires = caduca;
-            cookieUsuarioOptions.SameSite = SameSiteMode.None;
-            cookieUsuarioOptions.Secure = true;
+
+            if (mConfigService.PeticionHttps())
+            {
+                cookieUsuarioOptions.SameSite = SameSiteMode.None;
+                cookieUsuarioOptions.Secure = true;
+            }
             mHttpContextAccessor.HttpContext.Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookieUsuarioValues, mEntityContext), cookieUsuarioOptions);
 
             CookieOptions usuarioLogueadoOptions = new CookieOptions();

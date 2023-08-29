@@ -7,6 +7,7 @@ using Es.Riam.Gnoss.AD.Usuarios;
 using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.CL.ParametrosAplicacion;
+using Es.Riam.Gnoss.CL.Trazas;
 using Es.Riam.Gnoss.Elementos.Identidad;
 using Es.Riam.Gnoss.Elementos.ParametroAplicacion;
 using Es.Riam.Gnoss.Logica.ServiciosGenerales;
@@ -21,6 +22,7 @@ using Es.Riam.Web.Util;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -72,6 +74,8 @@ namespace Gnoss.Web.Login
         protected EntityContextBASE mEntityContextBASE;
         protected VirtuosoAD mVirtuosoAD;
         protected IServicesUtilVirtuosoAndReplication mServicesUtilVirtuosoAndReplication;
+        private static object BLOQUEO_COMPROBACION_TRAZA = new object();
+        private static DateTime HORA_COMPROBACION_TRAZA;
 
         #endregion
 
@@ -137,6 +141,43 @@ namespace Gnoss.Web.Login
         }
 
         #endregion
+
+        #region Métodos de trazas
+        [NonAction]
+        private void IniciarTraza()
+        {
+            if (DateTime.Now > HORA_COMPROBACION_TRAZA)
+            {
+                lock (BLOQUEO_COMPROBACION_TRAZA)
+                {
+                    if (DateTime.Now > HORA_COMPROBACION_TRAZA)
+                    {
+                        HORA_COMPROBACION_TRAZA = DateTime.Now.AddSeconds(15);
+                        TrazasCL trazasCL = new TrazasCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+                        string tiempoTrazaResultados = trazasCL.ObtenerTrazaEnCache("login");
+
+                        if (!string.IsNullOrEmpty(tiempoTrazaResultados))
+                        {
+                            int valor = 0;
+                            int.TryParse(tiempoTrazaResultados, out valor);
+                            LoggingService.TrazaHabilitada = true;
+                            LoggingService.TiempoMinPeticion = valor; //Para sacar los segundos
+                        }
+                        else
+                        {
+                            LoggingService.TrazaHabilitada = false;
+                            LoggingService.TiempoMinPeticion = 0;
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        public override void OnActionExecuting(ActionExecutingContext filterContext)
+        {
+            IniciarTraza();
+        }
 
         #region Metodos generales
 
@@ -372,12 +413,12 @@ namespace Gnoss.Web.Login
         private void AgregarDominio(string pDominio)
         {
             CookieOptions options = new CookieOptions();
-            Dictionary<string, string> cookieValues = new Dictionary<string, string>();
+            Dictionary<string, string> cookieValues = UtilCookies.FromLegacyCookieString(Request.Cookies["_Dominios"], mEntityContext);
 
             //Cabeceras para poder recibir cookies de terceros
             mHttpContextAccessor.HttpContext.Response.Headers.Add("p3p", "CP=\"IDC DSP COR ADM DEVi TAIi PSA PSD IVAi IVDi CONi HIS OUR IND CNT\"");
 
-            if (!string.IsNullOrEmpty(pDominio) && UtilCookies.FromLegacyCookieString(Request.Cookies["_Dominios"], mEntityContext).ContainsKey("pDominio"))
+            if (!string.IsNullOrEmpty(pDominio) && !cookieValues.ContainsKey(pDominio))
             {
                 //Quito www.
                 if (pDominio.Contains("//www."))
@@ -385,7 +426,7 @@ namespace Gnoss.Web.Login
                     pDominio = pDominio.Replace("//www.", "//");
                 }
 
-                cookieValues.Add(pDominio, "conectado");
+                cookieValues.TryAdd(pDominio, "conectado");
             }
 
             //establezco la validez de la cookie que será de 1 día
@@ -412,6 +453,8 @@ namespace Gnoss.Web.Login
                 existe = false;
             }
 
+            bool cookieSesion = mConfigService.ObtenerCokieSesion();
+
             //establezco la validez inicial de la cookie que será de 1 día o indefinida si el usuario quiere mantener su sesión activa
             DateTime caduca = ObtenerValidezCookieUsuario();
 
@@ -425,8 +468,12 @@ namespace Gnoss.Web.Login
             cookieUsuarioValues.Add("login", "1");
             cookieUsuarioValues.Add("idioma", pIdioma);
 
-            //Añado la cookie al navegador
-            cookieUsuarioOptions.Expires = caduca;
+            //Añado la cookie al navegador con expiración o si no de sesion
+            if (!cookieSesion)
+            {
+                cookieUsuarioOptions.Expires = caduca;
+            }
+            
 
             if (mConfigService.PeticionHttps())
             {
@@ -440,13 +487,21 @@ namespace Gnoss.Web.Login
             // Creo la cookie para que accedan todos los subdominios del dominio principal. 
             // Ej: servicios.didactalia.net -> .didactalia.net, servicios.gnoss.com -> .gnoss.com
             // De esta manera la cookie llega a didactalia.net, red.didactalia.net, gnoss.com, red.gnoss.com, redprivada.gnoss.com...
-            string dominio = pDominioAplicacion;
-            if (pDominioAplicacion.IndexOf('.', 1) >= 0)
+            string[] dominio = pDominioAplicacion.Split('.', StringSplitOptions.RemoveEmptyEntries);
+
+            if (dominio.Length > 1)
             {
-                dominio = pDominioAplicacion.Substring(pDominioAplicacion.IndexOf('.', 1));
+                usuarioLogueadoOptions.Domain = $".{dominio[dominio.Length - 2]}.{dominio[dominio.Length - 1]}";
             }
-            usuarioLogueadoOptions.Domain = dominio;
-            usuarioLogueadoOptions.Expires = caduca;
+            else
+            {
+                usuarioLogueadoOptions.Domain = pDominioAplicacion;
+            }
+            if (!cookieSesion)
+            {
+                usuarioLogueadoOptions.Expires = caduca;
+            }
+            
 
             if (mHttpContextAccessor.HttpContext.Request.Scheme.Equals("https"))
             {

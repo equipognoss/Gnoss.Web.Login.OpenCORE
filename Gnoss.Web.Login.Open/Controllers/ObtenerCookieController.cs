@@ -13,7 +13,10 @@ using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.IO.Compression;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Web;
 
 namespace Gnoss.Web.Login
@@ -66,12 +69,12 @@ namespace Gnoss.Web.Login
             Response.Headers.Add("Access-Control-Allow-Origin", dominio);
             Response.Headers.Add("Access-Control-Allow-Credentials", "true");
 
-            if (cookieRewrite != null)
+            if (cookieRewrite != null && cookieRewrite.Count > 0)
             {
                 mPersonaID = new Guid(cookieRewrite["personaID"]);
                 mNombreCorto = cookieRewrite["nombreCorto"];
             }
-            if (cookie != null)
+            if (cookie != null && cookieRewrite.Count > 0)
             {
                 mUsuarioID = new Guid(cookie["usuarioID"]);
                 mMantenerConectado = bool.Parse(cookie["MantenerConectado"]);
@@ -89,7 +92,7 @@ namespace Gnoss.Web.Login
                 }
             }
 
-            if (cookieRewrite != null && extenderFechaCookie)
+            if (cookieRewrite != null && cookieRewrite.Count > 0 && extenderFechaCookie)
             {
                 Response.Cookies.Append("_rewrite", UtilCookies.ToLegacyCookieString(cookieRewrite, mEntityContext), new CookieOptions { Expires = caduca });
             }
@@ -98,7 +101,7 @@ namespace Gnoss.Web.Login
             {
                 Response.Cookies.Append("_Envio", Request.Cookies["_Envio"], new CookieOptions { Expires = caduca });
             }
-
+            
             string redirect = "";
             string token = "";
             string eliminarCookie = "";

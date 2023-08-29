@@ -347,7 +347,6 @@ namespace Gnoss.Web.Login
                             mLoggingService.GuardarLogError($"La url {redirect1} no es válida. Imposible obtener el dominio. ");
                         }
 
-                        AgregarFilaUsuarioContadores(mUsuarioID);
                         EnviarCookies(dominioDeVuelta, redirect1, token1, mismoUsuarioLogueado);
                     }
                     else
@@ -564,13 +563,6 @@ namespace Gnoss.Web.Login
         #endregion
 
         #region Metodos generales
-        [NonAction]
-        private void AgregarFilaUsuarioContadores(Guid pUsuarioID)
-        {
-            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-            usuarioCN.ActualizarContadorUsuarioNumAccesos(pUsuarioID);
-            usuarioCN.Dispose();
-        }
 
         /// <summary>
         /// Envia las cookies al dominio que hizo la petición por medio de una redirección a obtenercookie.aspx
@@ -592,9 +584,12 @@ namespace Gnoss.Web.Login
             {
                 mLoggingService.GuardarLogError(ex, "Error al obtener el dominio de la redirección");
             }
-
-            string dominio = ObtenerDominioIP();
-
+            string dominio = mConfigService.ObtenerUrlServicioLogin();
+           
+            if (string.IsNullOrEmpty(dominio))
+            {
+                dominio = ObtenerDominioIP();
+            }
             //if (dominio.Equals(dominioRedireccion))
             //{
             //    Response.Redirect(pRedirect);

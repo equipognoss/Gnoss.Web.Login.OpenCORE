@@ -93,6 +93,10 @@ namespace Gnoss.Web.Login
         {
             //Recogemos los parámetros (token, proyecto e invitacion)
             string state = mHttpContextAccessor.HttpContext.Request.Query["state"];
+            if (!string.IsNullOrWhiteSpace(mHttpContextAccessor.HttpContext.Request.Query["proyectoID"]))
+            {
+                ProyectoIDSeleccionado = mHttpContextAccessor.HttpContext.Request.Query["proyectoID"];
+            }
             if (state != null)
             {
                 string[] allkeys = state.Split(new string[] { "AND_AND" }, StringSplitOptions.None);

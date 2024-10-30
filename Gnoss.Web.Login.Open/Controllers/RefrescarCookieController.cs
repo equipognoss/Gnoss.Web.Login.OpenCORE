@@ -34,14 +34,21 @@ namespace Gnoss.Web.Login.Open.Controllers
         {
             if (mHttpContextAccessor.HttpContext.Request.Cookies.ContainsKey("_UsuarioActual"))
             {
-                //establezco la validez inicial de la cookie que será de 1 día o indefinida si el usuario quiere mantener su sesión activa
-                DateTime caduca = ObtenerValidezCookieUsuario();
-
                 //obtengo las cookies
                 try
                 {
+                    //establezco la validez inicial de la cookie que será de 1 día o indefinida si el usuario quiere mantener su sesión activa
+                    DateTime caduca = ObtenerValidezCookieUsuario();
+                    CookieOptions cookieUsuarioOptions = new CookieOptions();
+                    cookieUsuarioOptions.Expires = caduca;
+                    cookieUsuarioOptions.HttpOnly = true;
+                    cookieUsuarioOptions.SameSite = SameSiteMode.Lax;
+                    if (mConfigService.PeticionHttps())
+                    {
+                        cookieUsuarioOptions.Secure = true;
+                    }
                     Dictionary<string, string> cookie = UtilCookies.FromLegacyCookieString(Request.Cookies["_UsuarioActual"], mEntityContext);
-                    Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookie, mEntityContext), new CookieOptions { Expires = caduca });
+                    Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookie, mEntityContext), cookieUsuarioOptions);
                 }
                 catch
                 {

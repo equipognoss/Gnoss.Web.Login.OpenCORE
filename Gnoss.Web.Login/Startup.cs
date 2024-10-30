@@ -45,7 +45,20 @@ namespace Gnoss.Web.Login
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddMvc();
+			ILoggerFactory loggerFactory =
+			LoggerFactory.Create(builder =>
+			{
+				builder.AddConfiguration(Configuration.GetSection("Logging"));
+				builder.AddSimpleConsole(options =>
+				{
+					options.IncludeScopes = true;
+					options.SingleLine = true;
+					options.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
+					options.UseUtcTimestamp = true;
+				});
+			});
+			services.AddSingleton(loggerFactory);
+			services.AddMvc();
             services.AddControllers();
             services.AddHttpContextAccessor();
             services.AddScoped(typeof(UtilTelemetry));
@@ -66,12 +79,15 @@ namespace Gnoss.Web.Login
                 options.AddPolicy(name: "_myAllowSpecificOrigins",
                 builder =>
                 {
-                    builder.AllowAnyOrigin();
+					builder.SetIsOriginAllowed(UtilServicios.ComprobarDominioPermitidoCORS);
+					builder.AllowAnyOrigin();
                     builder.AllowAnyHeader();
                     builder.AllowAnyMethod();
                 });
             });
-            string bdType = "";
+			services.AddRazorPages().AddRazorRuntimeCompilation();
+			services.AddControllersWithViews().AddRazorRuntimeCompilation();
+			string bdType = "";
             IDictionary environmentVariables = Environment.GetEnvironmentVariables();
             if (environmentVariables.Contains("connectionType"))
             {
@@ -81,13 +97,12 @@ namespace Gnoss.Web.Login
             {
                 bdType = Configuration.GetConnectionString("connectionType");
             }
-            if (bdType.Equals("2"))
+            if (bdType.Equals("2") || bdType.Equals("1"))
             {
                 services.AddScoped(typeof(DbContextOptions<EntityContext>));
                 services.AddScoped(typeof(DbContextOptions<EntityContextBASE>));
             }
             services.AddSingleton(typeof(ConfigService));
-            services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
             Conexion.ServicioWeb = true;
             string acid = "";
@@ -118,7 +133,16 @@ namespace Gnoss.Web.Login
 
                         );
             }
-            else if (bdType.Equals("2"))
+			else if (bdType.Equals("1"))
+			{
+				services.AddDbContext<EntityContext, EntityContextOracle>(options =>
+						options.UseOracle(acid)
+						);
+				services.AddDbContext<EntityContextBASE, EntityContextBASEOracle>(options =>
+						options.UseOracle(baseConnection)
+						);
+			}
+			else if (bdType.Equals("2"))
             {
                 services.AddDbContext<EntityContext, EntityContextPostgres>(opt =>
                 {
@@ -140,29 +164,28 @@ namespace Gnoss.Web.Login
 
             // Resolve the services from the service provider
             var configService = sp.GetService<ConfigService>();
+			var servicesUtilVirtuosoAndReplication = sp.GetService<IServicesUtilVirtuosoAndReplication>();
+			var loggingService = sp.GetService<LoggingService>();
+			var redisCacheWrapper = sp.GetService<RedisCacheWrapper>();
+			services.AddSession(options => {
+				options.IdleTimeout = TimeSpan.FromMinutes(60); // Tiempo de expiración   
+																//options.Cookie.Name = "AppTest";
+																//options.Cookie.HttpOnly = true; // correct initialization
 
-
-            string configLogStash = configService.ObtenerLogStashConnection();
+			});
+			string configLogStash = configService.ObtenerLogStashConnection();
             if (!string.IsNullOrEmpty(configLogStash))
             {
                 LoggingService.InicializarLogstash(configLogStash);
             }
             var entity = sp.GetService<EntityContext>();
             LoggingService.RUTA_DIRECTORIO_ERROR = Path.Combine(mEnvironment.ContentRootPath, "logs");
-            //TODO Javier
-            //BaseAD.LeerConfiguracionConexion(mGestorParametrosAplicacion.ListaConfiguracionBBDD.Where(confBBDD=>confBBDD.TipoConexion.Equals((short)TipoConexion.SQLServer)).ToList());
-
-            //TODO Javier
-            //BaseCL.LeerConfiguracionCache(mGestorParametrosAplicacion.ListaConfiguracionBBDD.Where(confBBDD => confBBDD.TipoConexion.Equals((short)TipoConexion.Redis)).ToList()); 
-
-            //TODO Javier
-            //BaseAD.LeerConfiguracionConexion(mGestorParametrosAplicacion.ListaConfiguracionBBDD.Where(confBBDD => confBBDD.TipoConexion.Equals((short)TipoConexion.Virtuoso)).ToList());
 
             EstablecerDominioCache(entity);
 
-            CargarIdiomasPlataforma(configService);
-
-            ConfigurarApplicationInsights(configService);
+			UtilServicios.CargarIdiomasPlataforma(entity, loggingService, configService, servicesUtilVirtuosoAndReplication, redisCacheWrapper);
+			UtilServicios.CargarDominiosPermitidosCORS(entity);
+			ConfigurarApplicationInsights(configService);
 
             services.AddSwaggerGen(c =>
             {
@@ -177,15 +200,17 @@ namespace Gnoss.Web.Login
             {
                 app.UseDeveloperExceptionPage();
                 app.UseSwagger();
-                app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gnoss.Web.Login v1"));
+                app.UseSwaggerUI(c => c.SwaggerEndpoint("v1/swagger.json", "Gnoss.Web.Login v1"));
             }
 
             app.UseHttpsRedirection();
 
             app.UseRouting();
-            app.UseCors();            
-            app.UseAuthorization();
-            app.UseGnossMiddleware();
+			app.UseCors("_myAllowSpecificOrigins");
+			app.UseAuthentication();
+			app.UseAuthorization();
+			app.UseSession();
+			app.UseGnossMiddleware();
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
@@ -207,12 +232,6 @@ namespace Gnoss.Web.Login
             }
 
             BaseCL.DominioEstatico = dominio;
-        }
-
-        private void CargarIdiomasPlataforma(ConfigService configService)
-        {
-
-            configService.ObtenerListaIdiomas().FirstOrDefault();
         }
 
         private void ConfigurarApplicationInsights(ConfigService configService)

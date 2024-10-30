@@ -1,9 +1,14 @@
+using AngleSharp.Common;
 using Es.Riam.AbstractsOpen;
 using Es.Riam.Gnoss.AD.EncapsuladoDatos;
 using Es.Riam.Gnoss.AD.EntityModel;
+using Es.Riam.Gnoss.AD.EntityModel.Models.Peticion;
 using Es.Riam.Gnoss.AD.EntityModel.Models.Solicitud;
 using Es.Riam.Gnoss.AD.EntityModelBASE;
+using Es.Riam.Gnoss.AD.Notificacion;
+using Es.Riam.Gnoss.AD.Organizador.Correo.Model;
 using Es.Riam.Gnoss.AD.ParametroAplicacion;
+using Es.Riam.Gnoss.AD.Peticion;
 using Es.Riam.Gnoss.AD.ServiciosGenerales;
 using Es.Riam.Gnoss.AD.Usuarios;
 using Es.Riam.Gnoss.AD.Virtuoso;
@@ -11,8 +16,14 @@ using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.CL.ParametrosAplicacion;
 using Es.Riam.Gnoss.CL.Seguridad;
 using Es.Riam.Gnoss.CL.ServiciosGenerales;
+using Es.Riam.Gnoss.CL.Usuarios;
+using Es.Riam.Gnoss.Elementos.Identidad;
+using Es.Riam.Gnoss.Elementos.Notificacion;
+using Es.Riam.Gnoss.Elementos.Organizador.Correo;
 using Es.Riam.Gnoss.Elementos.ParametroAplicacion;
 using Es.Riam.Gnoss.Elementos.ServiciosGenerales;
+using Es.Riam.Gnoss.Logica.Identidad;
+using Es.Riam.Gnoss.Logica.Notificacion;
 using Es.Riam.Gnoss.Logica.ParametroAplicacion;
 using Es.Riam.Gnoss.Logica.ParametrosProyecto;
 using Es.Riam.Gnoss.Logica.ServiciosGenerales;
@@ -26,14 +37,17 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Amqp.Framing;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Data;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.Unicode;
 using System.Web;
 using System.Web.UI;
 
@@ -67,22 +81,48 @@ namespace Gnoss.Web.Login
         /// Evento que se produce al cargar la página
         /// </summary>
         [HttpGet, HttpPost]
-        public ActionResult Index([FromHeader] string token, [FromHeader] string redirect, Guid proyectoID,bool esProyectoPrivado, [FromForm] string usuario, [FromForm] string password)
-        {
-            
+        public ActionResult Index([FromHeader] string token, [FromHeader] string redirect, Guid proyectoID, string idioma, string baseURL, bool esProyectoPrivado, [FromForm] string usuario, [FromForm] string password)
+        {          
             string urlFormulario = this.Request.Path.ToString();
-            
+
             string redirect1 = UrlAplicacionPrincipal;
 
             if (Request.Headers.ContainsKey("Referer") && !Request.Headers["Referer"].ToString().Contains(UtilIdiomas.GetText("URLSEM", "DESCONECTAR")))
             {
                 redirect1 = Request.Headers["Referer"].ToString();
+                try
+                {
+                    //Comprobamos que el parametro redirect que pueda venir desde el Referer pertenece al host del proyecto
+                    Uri uriRedirect = new Uri(redirect1);
+                    string query = uriRedirect.Query;
+                    if (!string.IsNullOrEmpty(query))
+                    {
+                        redirect1 = ComprobarQueryString(query, proyectoID, idioma);
+                        NameValueCollection queryString = HttpUtility.ParseQueryString(redirect1);
+                        if (queryString["redirect"] != null)
+                        {
+                            redirect1 = queryString["redirect"];
+                        }
+                        else
+                        {
+                            redirect1 = "";
+                        }
+                    }
+                    
+                }
+                catch (Exception ex) 
+                {
+                    mLoggingService.GuardarLogError(ex.Message);
+                }
             }
-
             if (!string.IsNullOrEmpty(Request.Query["redirect"]))
             {
-                redirect1 = Request.Query["redirect"];
-
+                //Comprobamos que el parametro redirect que se está enviando explicitamente sea valido
+                string redirectQuery = Request.Query["redirect"];  
+                if(redirectQuery.Equals(ComprobarRedirectValido(redirectQuery, proyectoID, idioma)))
+                {
+                    redirect1 = Request.Query["redirect"];
+                }
                 if (!redirect1.StartsWith("http"))
                 {
                     if (!redirect1.StartsWith("/"))
@@ -114,12 +154,11 @@ namespace Gnoss.Web.Login
                     else
                     {
                         urlFormulario = urlFormulario.Remove(indiceCorte);
-                    }
-
+                    } 
                     urlFormulario += caracterCorte + "redirect=" + redirect1;
                 }
-            }
-
+            }           
+            
             bool CapchaActivo = true;
             int NumMaxIntentosIP = 3;
 
@@ -130,7 +169,7 @@ namespace Gnoss.Web.Login
                 NumMaxIntentosIP = mConfigService.ObtenerCaptchaNumIntentos();
             }
             string token1 = null;
-            if(token != null)
+            if (token != null)
             {
                 token1 = token;
             }
@@ -138,7 +177,7 @@ namespace Gnoss.Web.Login
             {
                 token1 = Request.Query["token"];
             }
-            
+
 
             string ip = ObtenerIP();
 
@@ -155,9 +194,15 @@ namespace Gnoss.Web.Login
                 string passwd = Request.Form["password"];
                 string codigoVerificacion = null;
 
-                if (string.IsNullOrEmpty(Request.Form["codigoverificacion"]))
+                if (!string.IsNullOrEmpty(Request.Form["codigoverificacion"]))
                 {
                     codigoVerificacion = Request.Form["codigoverificacion"];
+                }
+
+                if (!ComprobarSiUsuarioPuedeHacerLogin(login))
+                {
+                    RedirigirConError(redirect1, "#UsuarioBloqueado");
+                    return Content("");
                 }
 
                 string captcha = Request.Headers["captcha"];
@@ -173,7 +218,7 @@ namespace Gnoss.Web.Login
                         if (errorLoginExterno.StartsWith("error="))
                         {
                             //Guardo el error en el log
-                            mLoggingService.GuardarLogError("Se ha producido un error en el serviciode login externo:" + errorLoginExterno);
+                            mLoggingService.GuardarLogError("Se ha producido un error en el servicio de login externo:" + errorLoginExterno);
                             almohadillaerror = "#errorAutenticacionExterna";
                         }
                         else if (errorLoginExterno.StartsWith("sinactivar"))
@@ -279,6 +324,18 @@ namespace Gnoss.Web.Login
                     }
                     else if (loguear && ValidarUsuario(login, passwd, codigoVerificacion, false, estaValidado) && !mostrarPanelActivacionExterno && estaValidado)
                     {
+                        UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);                       
+                        Guid usuarioID = (Guid)usuarioCN.ObtenerUsuarioIDPorLoginOEmail(login);
+                      
+
+                        //Comprobar si el usuario tiene activada la autenticacion de doble factor
+                        if (usuarioCN.ComprobarDobleAutenticacionUsuario(usuarioID))
+                        {
+                            AutenticarUsuarioConDobleFactor(login, baseURL, idioma, proyectoID, usuarioID);
+
+                            return Content("");
+                        }
+
                         InvalidarTokenCaptcha(token1);
 
                         if (Request.Cookies.ContainsKey("_Envio"))
@@ -311,7 +368,6 @@ namespace Gnoss.Web.Login
 
                         if (filaParametro != null && !string.IsNullOrEmpty(filaParametro.Valor) && filaParametro.Valor.ToLower().Equals("##comunidadorigen##"))
                         {
-                            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
                             SolicitudCN solicitudCN = new SolicitudCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
                             Es.Riam.Gnoss.AD.EntityModel.Models.UsuarioDS.Usuario filaUsuario = usuarioCN.ObtenerFilaUsuarioPorLoginOEmail(login);
                             if (filaUsuario != null)
@@ -363,8 +419,7 @@ namespace Gnoss.Web.Login
 
                         if (filaUsuario != null)
                         {
-                            bool registroCompleto = true;
-
+                            bool registroCompleto = true;                          
                             SolicitudCN solicitudCN = new SolicitudCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
                             DataWrapperSolicitud solicitudDW = solicitudCN.ObtenerSolicitudesDeUsuario(filaUsuario.UsuarioID);
                             SolicitudNuevoUsuario filaSolicitud = null;
@@ -424,6 +479,36 @@ namespace Gnoss.Web.Login
 
             return Content("");
         }
+
+        [NonAction]
+        private bool ComprobarSiUsuarioPuedeHacerLogin(string pLoginUsuario)
+        {
+            bool loginPermitido = true;
+            try
+            {
+                UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                Guid usuarioID = (Guid)usuarioCN.ObtenerUsuarioIDPorLoginOEmail(pLoginUsuario);
+                
+                if (!usuarioID.Equals(Guid.Empty))
+                {
+                    UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+                    EstadoLoginUsuario estadoLogin = usuarioCL.ComprobarSiUsuarioPuedeHacerLogin(usuarioID);
+                    if (estadoLogin.Equals(EstadoLoginUsuario.Bloqueado))
+                    {
+                        loginPermitido = false;
+                    }
+                    usuarioCL.Dispose();
+                }
+                usuarioCN.Dispose();
+            }
+            catch (Exception ex)
+            {
+                mLoggingService.GuardarLogError(ex, $"Error al comprobar el numero de peticiones del usuario {pLoginUsuario}. Error: {ex.Message}");
+            }
+
+            return loginPermitido;
+        }
+
         [NonAction]
         private bool ValidadoUsuario(string login)
         {
@@ -436,7 +521,7 @@ namespace Gnoss.Web.Login
                 validado = true;
             }
             return validado;
-        }  
+        }
 
         [NonAction]
         private void RedirigirConError(string pRedirect, string pAlmohadillaerror)
@@ -473,7 +558,7 @@ namespace Gnoss.Web.Login
                     language = Request.Headers["Referer"].ToString().Substring(indicePrimerFragmento, longitudFragmento);
                 }
 
-                Es.Riam.Gnoss.Recursos.UtilIdiomas utilIdiomas = new Es.Riam.Gnoss.Recursos.UtilIdiomas(language, mLoggingService, mEntityContext, mConfigService);
+                Es.Riam.Gnoss.Recursos.UtilIdiomas utilIdiomas = new Es.Riam.Gnoss.Recursos.UtilIdiomas(language, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper);
 
                 ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
 
@@ -563,7 +648,7 @@ namespace Gnoss.Web.Login
         #endregion
 
         #region Metodos generales
-
+        
         /// <summary>
         /// Envia las cookies al dominio que hizo la petición por medio de una redirección a obtenercookie.aspx
         /// </summary>
@@ -574,38 +659,30 @@ namespace Gnoss.Web.Login
         [NonAction]
         private void EnviarCookies(string pDominioDeVuelta, string pRedirect, string pToken, bool pMismoUsuarioLogueado)
         {
-            string dominioRedireccion = string.Empty;
-            try
-            {
-                Uri uriRedireccion = new Uri(pRedirect);
-                dominioRedireccion = UtilDominios.ObtenerDominioUrl(uriRedireccion, true);
-            }
-            catch (Exception ex)
-            {
-                mLoggingService.GuardarLogError(ex, "Error al obtener el dominio de la redirección");
-            }
             string dominio = mConfigService.ObtenerUrlServicioLogin();
-           
+
             if (string.IsNullOrEmpty(dominio))
             {
                 dominio = ObtenerDominioIP();
             }
-            //if (dominio.Equals(dominioRedireccion))
-            //{
-            //    Response.Redirect(pRedirect);
-            //}
-            //else
-            //{
-                string mismoUsuarioLogueado = "";
-                if (pMismoUsuarioLogueado)
-                {
-                    mismoUsuarioLogueado = "&eliminarCookie=false";
-                }
 
-                string query = "urlVuelta=" + pDominioDeVuelta + "&redirect=" + HttpUtility.UrlEncode(pRedirect) + "&token=" + pToken + mismoUsuarioLogueado;
+            string proyectoID = Request.Query["proyectoID"];
+            string queryProyectoID = string.Empty;
 
-                Response.Redirect(dominio + "/obtenerCookie?" + query);
-            //}
+            if (!string.IsNullOrEmpty(proyectoID))
+            {
+                queryProyectoID = $"&proyectoID={proyectoID}";
+            }
+
+            string mismoUsuarioLogueado = "";
+            if (pMismoUsuarioLogueado)
+            {
+                mismoUsuarioLogueado = "&eliminarCookie=false";
+            }
+            
+            string query = $"urlVuelta={pDominioDeVuelta}&redirect={HttpUtility.UrlEncode(pRedirect)}&token={pToken}{mismoUsuarioLogueado}{queryProyectoID}";
+
+            Response.Redirect($"{dominio}/obtenerCookie?{query}");
         }
 
         #endregion
@@ -688,7 +765,7 @@ namespace Gnoss.Web.Login
                         if (jsonNuevoUsuario != null)
                         {
                             //Creamos el ususario en la aplicación
-                            string loginUsuario = UtilCadenas.LimpiarCaracteresNombreCortoRegistro(jsonNuevoUsuario.Nombre) + '-' + UtilCadenas.LimpiarCaracteresNombreCortoRegistro(jsonNuevoUsuario.Apellidos);
+                            string loginUsuario = UtilCadenas.LimpiarCaracteresNombreCortoRegistro(jsonNuevoUsuario.name) + '-' + UtilCadenas.LimpiarCaracteresNombreCortoRegistro(jsonNuevoUsuario.last_name);
 
                             if (loginUsuario.Length > 12)
                             {
@@ -748,9 +825,9 @@ namespace Gnoss.Web.Login
                             filaNuevoUsuario.SolicitudID = filaSolicitud.SolicitudID;
                             filaNuevoUsuario.UsuarioID = filaUsuario.UsuarioID;
                             filaNuevoUsuario.NombreCorto = nombreCortoUsuario;
-                            filaNuevoUsuario.Nombre = jsonNuevoUsuario.Nombre;
-                            filaNuevoUsuario.Apellidos = jsonNuevoUsuario.Apellidos;
-                            filaNuevoUsuario.Email = jsonNuevoUsuario.Email;
+                            filaNuevoUsuario.Nombre = jsonNuevoUsuario.name;
+                            filaNuevoUsuario.Apellidos = jsonNuevoUsuario.last_name;
+                            filaNuevoUsuario.Email = jsonNuevoUsuario.email;
                             filaNuevoUsuario.EsBuscable = true;
                             filaNuevoUsuario.EsBuscableExterno = false;
 
@@ -767,11 +844,11 @@ namespace Gnoss.Web.Login
                             mEntityContext.SolicitudNuevoUsuario.Add(filaNuevoUsuario);
 
 
-                            JsonEstado jsonEstadoRegistroTrasLoginConRegistro = ControladorIdentidades.AccionEnServicioExternoEcosistema(TipoAccionExterna.RegistroTrasLoginConRegistro, ProyectoSeleccionadoID, filaNuevoUsuario.UsuarioID, jsonNuevoUsuario.Nombre, jsonNuevoUsuario.Apellidos, pLogin, pPasswd, gestorParametroApp, null, null, null, null);
+                            JsonEstado jsonEstadoRegistroTrasLoginConRegistro = ControladorIdentidades.AccionEnServicioExternoEcosistema(TipoAccionExterna.RegistroTrasLoginConRegistro, ProyectoSeleccionadoID, filaNuevoUsuario.UsuarioID, jsonNuevoUsuario.name, jsonNuevoUsuario.last_name, pLogin, pPasswd, gestorParametroApp, null, null, null, null);
 
                             if (jsonEstadoRegistroTrasLoginConRegistro == null || jsonEstadoRegistroTrasLoginConRegistro.Correcto)
                             {
-                                GuardarDatosExtra(solicitudDW, filaSolicitud, jsonNuevoUsuario.DatosExtra, ProyectoSeleccionado);
+                                GuardarDatosExtra(solicitudDW, filaSolicitud, jsonNuevoUsuario.extra_data, ProyectoSeleccionado);
 
                                 ControladorIdentidades.AceptarUsuario(filaSolicitud.SolicitudID, solicitudDW, usuarioDWLogin, ProyectoSeleccionado, ProyectoSeleccionado.FilaProyecto.URLPropia, UrlIntragnoss, UrlIntragnossServicios);
                                 pRedirect = mControladorBase.UrlsSemanticas.ObtenerURLComunidad(UtilIdiomas, BaseURLIdioma, ProyectoSeleccionado.NombreCorto) + "/" + UtilIdiomas.GetText("URLSEM", "REGISTROUSUARIO") + "/1?prefer=1";
@@ -844,13 +921,13 @@ namespace Gnoss.Web.Login
             {
                 foreach (Es.Riam.Gnoss.AD.EntityModel.Models.ProyectoDS.DatoExtraEcosistemaVirtuoso filaEcosistema in dataWrapperProyecto.ListaDatoExtraEcosistemaVirtuoso)
                 {
-                    if (!string.IsNullOrEmpty(filaEcosistema.NombreCampo) && !string.IsNullOrEmpty(datoextraUsuario.Valor) && filaEcosistema.NombreCampo == datoextraUsuario.Nombre)
+                    if (!string.IsNullOrEmpty(filaEcosistema.NombreCampo) && !string.IsNullOrEmpty(datoextraUsuario.value) && filaEcosistema.NombreCampo == datoextraUsuario.name)
                     {
                         DatoExtraEcosistemaVirtuosoSolicitud datoExtraEcosistemaVirtuosoSolicitud = new DatoExtraEcosistemaVirtuosoSolicitud();
                         datoExtraEcosistemaVirtuosoSolicitud.DatoExtraID = filaEcosistema.DatoExtraID;
                         datoExtraEcosistemaVirtuosoSolicitud.Solicitud = pSolicitudRow;
                         datoExtraEcosistemaVirtuosoSolicitud.SolicitudID = pSolicitudRow.SolicitudID;
-                        datoExtraEcosistemaVirtuosoSolicitud.Opcion = datoextraUsuario.Valor;
+                        datoExtraEcosistemaVirtuosoSolicitud.Opcion = datoextraUsuario.value;
                         pSolicitudDW.ListaDatoExtraEcosistemaVirtuosoSolicitud.Add(datoExtraEcosistemaVirtuosoSolicitud);
                         mEntityContext.DatoExtraEcosistemaVirtuosoSolicitud.Add(datoExtraEcosistemaVirtuosoSolicitud);
                     }
@@ -858,17 +935,124 @@ namespace Gnoss.Web.Login
 
                 foreach (Es.Riam.Gnoss.AD.EntityModel.Models.ProyectoDS.DatoExtraProyectoVirtuoso filaProyecto in dataWrapperProyecto.ListaDatoExtraProyectoVirtuoso)
                 {
-                    if (!string.IsNullOrEmpty(filaProyecto.NombreCampo) && !string.IsNullOrEmpty(datoextraUsuario.Valor) && filaProyecto.NombreCampo == datoextraUsuario.Nombre)
+                    if (!string.IsNullOrEmpty(filaProyecto.NombreCampo) && !string.IsNullOrEmpty(datoextraUsuario.value) && filaProyecto.NombreCampo == datoextraUsuario.name)
                     {
                         DatoExtraEcosistemaVirtuosoSolicitud datoExtraEcosistemaVirtuosoSolicitud = new DatoExtraEcosistemaVirtuosoSolicitud();
                         datoExtraEcosistemaVirtuosoSolicitud.DatoExtraID = filaProyecto.DatoExtraID;
                         datoExtraEcosistemaVirtuosoSolicitud.Solicitud = pSolicitudRow;
                         datoExtraEcosistemaVirtuosoSolicitud.SolicitudID = pSolicitudRow.SolicitudID;
-                        datoExtraEcosistemaVirtuosoSolicitud.Opcion = datoextraUsuario.Valor;
+                        datoExtraEcosistemaVirtuosoSolicitud.Opcion = datoextraUsuario.value;
                         pSolicitudDW.ListaDatoExtraEcosistemaVirtuosoSolicitud.Add(datoExtraEcosistemaVirtuosoSolicitud);
                         mEntityContext.DatoExtraEcosistemaVirtuosoSolicitud.Add(datoExtraEcosistemaVirtuosoSolicitud);
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Genera el token para la doble autenticacion, redirige al usuario a la paguina para autenticarse y le envia un correo con el token
+        /// </summary>
+        private void AutenticarUsuarioConDobleFactor(string pLogin, string pBaseURL, string pIdioma, Guid pProyectoID, Guid pUsuarioID)
+        {
+            //Genera el token para la doble autenticacion
+            string tokenAutenticacion = GenerarToken();
+            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
+            //Agrega el token a cache durante 10 minutos
+            proyectoCL.AgregarObjetoCache($"DobleAutenticacion_{tokenAutenticacion}", pLogin, 600);
+
+            ProyectoCN proyectoCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            GestionProyecto gestionProyecto = new GestionProyecto(new DataWrapperProyecto(), mLoggingService, mEntityContext);
+            Proyecto proyecto = new Proyecto(proyectoCN.ObtenerProyectoPorIDCargaLigera(pProyectoID), gestionProyecto, mLoggingService, mEntityContext);
+
+            GnossUrlsSemanticas gnossUrlsSemanticas = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication);
+            string urlBase = gnossUrlsSemanticas.ObtenerURLComunidad(new Es.Riam.Gnoss.Recursos.UtilIdiomas(pIdioma, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper), pBaseURL, proyecto.NombreCorto);
+
+            //Envia el correo al usuario con el token para autenticarse
+            EnviarCorreoAutenticacionDobleFactor(pUsuarioID, proyecto, tokenAutenticacion);
+
+            string redireccion = Request.Query["redirect"];
+            
+            if (!string.IsNullOrEmpty(redireccion))
+            {
+                if (redireccion.StartsWith("http://") || redireccion.StartsWith("https://"))
+                {
+                    string urlPropia = proyectoCN.ObtenerURLPropiaProyecto(pProyectoID).Replace("http://", string.Empty).Replace("https://", string.Empty);
+                    
+                    redireccion = $"/redirect{redireccion.Replace("http://", string.Empty).Replace("https://", string.Empty).Replace(urlPropia, string.Empty)}";
+                }
+                else
+                {
+                    int inicioRedireccion = redireccion.LastIndexOf("comunidad");
+                    if (inicioRedireccion > 0)
+                    {
+                        redireccion = $"/redirect/{redireccion.Substring(inicioRedireccion)}";
+                    }
+                    else
+                    {
+                        if (redireccion.StartsWith('/'))
+                        {
+                            redireccion = redireccion.Substring(1);
+                        }
+
+                        redireccion = $"/redirect/{redireccion}";
+                    }
+                }
+            }
+
+            //Redirige al usuario a la página de autenticacion
+            Response.Redirect($"{urlBase}/{UtilIdiomas.GetText("URLSEM", "AUTENTICACIONDOBLEFACTOR")}{redireccion}");
+        }
+
+        /// <summary>
+        /// Genera un toke aleatorio de 6 digitos
+        /// </summary>
+        /// <returns>Token</returns>
+        private string GenerarToken()
+        {
+            string characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            StringBuilder token = new StringBuilder();
+            Random random = new Random();
+
+            for (int i = 0; i < 6; i++)
+            {
+                int indice = random.Next(characters.Length);
+                token.Append(characters[indice]);
+            }
+
+            return token.ToString();
+        }
+
+        /// <summary>
+        /// Envia un correo con el token necesario para autenticarse con el doble factor
+        /// </summary>
+        private void EnviarCorreoAutenticacionDobleFactor(Guid pUsuarioID, Proyecto proyecto, string token)
+        {
+            DataWrapperPeticion peticionDW = new DataWrapperPeticion();
+            Peticion filaPeticion = new Peticion();
+            filaPeticion.Estado = (short)EstadoPeticion.Pendiente;
+            filaPeticion.FechaPeticion = DateTime.Now;
+            filaPeticion.PeticionID = Guid.NewGuid();
+            filaPeticion.UsuarioID = pUsuarioID;
+            filaPeticion.Tipo = (int)TipoPeticion.AutenticacionDobleFactor;
+
+            peticionDW.ListaPeticion.Add(filaPeticion);
+            mEntityContext.Peticion.Add(filaPeticion);
+
+            PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            DataWrapperPersona dataWrapperPersona = personaCN.ObtenerPersonaPorUsuario(pUsuarioID);
+
+            if (dataWrapperPersona.ListaPersona.Count > 0)
+            {
+                GestionPersonas gestorPersonas = new GestionPersonas(dataWrapperPersona, mLoggingService, mEntityContext);
+                Es.Riam.Gnoss.AD.EntityModel.Models.PersonaDS.Persona filaPersona = dataWrapperPersona.ListaPersona.FirstOrDefault();
+
+                NotificacionCN notificacionCN = new NotificacionCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+
+                GestionNotificaciones gestorNotificaciones = new GestionNotificaciones(new DataWrapperNotificacion(), mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication);
+
+                gestorNotificaciones.AgregarNotificacionPeticionAutenticacionDobleFactor(gestorPersonas.ListaPersonas[filaPersona.PersonaID], token, proyecto, UtilIdiomas.LanguageCode);
+
+                notificacionCN.ActualizarNotificacion();
             }
         }
 
@@ -914,6 +1098,7 @@ namespace Gnoss.Web.Login
             webRequest.Method = pMetodo.ToString();
             webRequest.ServicePoint.Expect100Continue = false;
             webRequest.Timeout = 200000;
+            webRequest.UserAgent = UtilWeb.GenerarUserAgent();
 
             if (!string.IsNullOrEmpty(pContentType))
             {

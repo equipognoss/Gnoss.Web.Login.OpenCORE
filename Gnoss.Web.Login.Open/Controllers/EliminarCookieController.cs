@@ -48,6 +48,24 @@ namespace Gnoss.Web.Login
             string cookieUsuarioKey = "_UsuarioActual";
             string cookieEnvioKey = "_Envio";
             List<string> listaSrcIframes = new List<string>();
+            Guid proyectoID = new Guid("11111111-1111-1111-1111-111111111111");
+            string idioma = "es";
+            if (Request.Headers.ContainsKey("proyecto"))
+            {
+                Guid.TryParse(Request.Headers["proyecto"], out proyectoID);
+            }
+            else if (Request.Query.ContainsKey("proyecto"))
+            {
+                Guid.TryParse(Request.Query["proyecto"], out proyectoID);
+            }
+            if (Request.Headers.ContainsKey("idioma"))
+            {
+                idioma = Request.Headers["idioma"];
+            }
+            else if (Request.Query.ContainsKey("idioma"))
+            {
+                idioma = Request.Query["idioma"];
+            }
             if (!Request.Headers.ContainsKey("eliminar") && !Request.Query.ContainsKey("eliminar"))
             {
                 string dominio = "";
@@ -60,7 +78,11 @@ namespace Gnoss.Web.Login
                 {
                     dominio = Request.Query["dominio"];
                 }
-
+                
+                if (string.IsNullOrEmpty(dominio))
+                {
+                    dominio = DominioAplicacion;
+                }
                 if (Request.Cookies.ContainsKey(cookieEnvioKey) || Request.Headers.ContainsKey("nuevoEnvio"))
                 {
                     //Creo una cookie para saber que el resto de dominios ya han sido notificados
@@ -159,16 +181,27 @@ namespace Gnoss.Web.Login
             {
                 mLoggingService.GuardarLogError($"Ha habido un error al intentar cerrar la sesion de Keycloak. KEYCLOAK_ERROR: {ex.Message}");
             }
-
-            if ((Request.Query.ContainsKey("redirect") || Request.Headers.ContainsKey("redirect") )&& listaSrcIframes.Count == 0)
+            string redirect = "";
+            if ((Request.Query.ContainsKey("redirect") || Request.Headers.ContainsKey("redirect")))
             {
+                
                 if (Request.Headers.ContainsKey("redirect"))
                 {
-                    Response.Redirect(Request.Headers["redirect"]);
+                    redirect = ComprobarRedirectValido(Request.Headers["redirect"], proyectoID, idioma);
+                    Request.Headers["redirect"] = redirect;
                 }
                 else if (Request.Query.ContainsKey("redirect"))
                 {
-                    Response.Redirect(Request.Query["redirect"]);
+                    redirect = ComprobarRedirectValido(Request.Query["redirect"], proyectoID, idioma);
+                    Request.QueryString = new QueryString(ComprobarQueryString(Request.QueryString.ToString(), proyectoID, idioma));
+                }
+            }
+
+            if (listaSrcIframes.Count == 0)
+            {
+                if (!string.IsNullOrEmpty(redirect))
+                {
+                    Response.Redirect(new Uri(redirect).AbsoluteUri);
                 }
             }
 

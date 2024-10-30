@@ -3,13 +3,17 @@ using Es.Riam.Gnoss.AD.EncapsuladoDatos;
 using Es.Riam.Gnoss.AD.EntityModel;
 using Es.Riam.Gnoss.AD.EntityModelBASE;
 using Es.Riam.Gnoss.AD.ParametroAplicacion;
+using Es.Riam.Gnoss.AD.ServiciosGenerales;
 using Es.Riam.Gnoss.AD.Usuarios;
 using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.CL.ParametrosAplicacion;
+using Es.Riam.Gnoss.CL.ServiciosGenerales;
 using Es.Riam.Gnoss.CL.Trazas;
+using Es.Riam.Gnoss.CL.Usuarios;
 using Es.Riam.Gnoss.Elementos.Identidad;
 using Es.Riam.Gnoss.Elementos.ParametroAplicacion;
+using Es.Riam.Gnoss.Elementos.ServiciosGenerales;
 using Es.Riam.Gnoss.Logica.ServiciosGenerales;
 using Es.Riam.Gnoss.Logica.Usuarios;
 using Es.Riam.Gnoss.Recursos;
@@ -26,6 +30,7 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Configuration;
 using System.Data;
 using System.IO;
@@ -35,6 +40,7 @@ using System.Text.Encodings.Web;
 using System.Text.Unicode;
 using System.Web;
 using System.Xml;
+using Universal.Common.Extensions;
 
 namespace Gnoss.Web.Login
 {
@@ -203,6 +209,99 @@ namespace Gnoss.Web.Login
         }
 
         /// <summary>
+        /// Devuelve la query con el parametro redirect verificado
+        /// </summary>
+        /// <param name="pQueryString">Query de una url a verificar</param>
+        [NonAction]
+        public string ComprobarQueryString(string pQueryString, Guid pProyectoID, string pIdioma)
+        {
+            string queryString = pQueryString;
+            if (!string.IsNullOrEmpty(queryString))
+            {
+                NameValueCollection queryParams = HttpUtility.ParseQueryString(pQueryString);
+                string redirect = "";
+                string query = "";
+                //Comprobarmos el parametro redirect de la query del referer
+                if (queryParams["redirect"] != null)
+                {
+                    redirect = HttpUtility.UrlDecode(queryParams["redirect"]);
+                    if (!redirect.Equals(ComprobarRedirectValido(redirect, pProyectoID, pIdioma)))
+                    {
+                        redirect = ComprobarRedirectValido(redirect, pProyectoID, pIdioma);
+                    }
+                }
+                if (queryParams.Count > 0)
+                {
+                    foreach (string clave in queryParams.Keys)
+                    {
+                        string valor = queryParams[clave];
+                        if (valor.Equals(UtilCadenas.LimpiarInyeccionCodigo(valor)))
+                        {
+                            if (clave.Equals("redirect"))
+                            {
+                                valor = redirect;
+                            }
+                            if (!string.IsNullOrEmpty(valor))
+                            {
+                                query = $"{query}{clave}={valor}&";
+                            }
+                        }
+                    }
+                }
+                queryString = query;
+                if (!string.IsNullOrEmpty(queryString))
+                {
+                    queryString = queryString.Substring(0, queryString.Length - 1);
+                    queryString = $"?{queryString}";
+                }
+            }
+            return queryString;
+        }
+        /// <summary>
+        /// Comprueba si la URL dada es valida para poder redirigir a ella
+        /// </summary>
+        /// <param name="pUrlRedirect">Url a la que dirigir</param>
+        /// <param name="pProyectoID">Identificador del proyecto en el que se va a hacer login</param>
+        /// <param name="pIdioma">Idioma del usuario</param>
+        [NonAction]
+        protected string ComprobarRedirectValido(string pUrlRedirect, Guid pProyectoID, string pIdioma)
+        {
+            string redirect = "";
+            if (!string.IsNullOrEmpty(pUrlRedirect))
+            {
+                if (pProyectoID.Equals(Guid.Empty))
+                {
+                    pProyectoID = new Guid("11111111-1111-1111-1111-111111111111");
+                }
+                ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
+                GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(pProyectoID), mLoggingService, mEntityContext);
+                Proyecto proyecto = gestorProy.ListaProyectos[pProyectoID];
+                
+                try
+                {
+                    if (!mEnv.IsDevelopment() || (mEnv.IsDevelopment() && !pUrlRedirect.Contains("depuracion.net")))
+                    {
+                        string hostRedirect = new Uri(pUrlRedirect).Host;
+                        string hostProyecto = new Uri(proyecto.UrlPropia(pIdioma)).Host;
+                        string urlServicioLogin = mConfigService.ObtenerUrlServicioLogin();
+
+                        if (!hostRedirect.Equals(hostProyecto) && !pUrlRedirect.StartsWith(urlServicioLogin))
+                        {
+                            pUrlRedirect = proyecto.UrlPropia(pIdioma);
+                        }
+                    }
+
+                }
+                catch
+                {
+                    pUrlRedirect = proyecto.UrlPropia(pIdioma);
+                }
+            }
+            redirect = pUrlRedirect;
+            return redirect;
+        }
+
+        /// <summary>
         /// Valida nombre, contraseña y codigo de verificación del usuario
         /// </summary>
         /// <param name="pNombre">Nombre del usuario</param>
@@ -265,6 +364,9 @@ namespace Gnoss.Web.Login
         protected void LoguearUsuario(Guid pUsuarioID, Guid pPersonaID, string pNombreCorto, string pLogin, string pIdioma)
         {
             UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            usuarioCL.ReiniciarNumeroIntentosDeLoginUsuario(pUsuarioID);
+            usuarioCL.Dispose();
             // Usuario logueado correctamente, actualizo el contador de accesos
             usuarioCN.ActualizarContadorUsuarioNumAccesos(pUsuarioID);
 
@@ -379,6 +481,11 @@ namespace Gnoss.Web.Login
                         }
 
                         query += "&redirect=" + HttpUtility.UrlEncode(pRedirect);
+
+                        if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
+                        {
+                            query += $"&proyectoID={Request.Query["proyectoID"]}";
+                        }
                     }
                 }
             }
@@ -473,11 +580,11 @@ namespace Gnoss.Web.Login
             {
                 cookieUsuarioOptions.Expires = caduca;
             }
-            
 
+            cookieUsuarioOptions.SameSite = SameSiteMode.Lax;
+            cookieUsuarioOptions.HttpOnly = true;
             if (mConfigService.PeticionHttps())
             {
-                cookieUsuarioOptions.SameSite = SameSiteMode.None;
                 cookieUsuarioOptions.Secure = true;
             }
             mHttpContextAccessor.HttpContext.Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookieUsuarioValues, mEntityContext), cookieUsuarioOptions);
@@ -501,7 +608,7 @@ namespace Gnoss.Web.Login
             {
                 usuarioLogueadoOptions.Expires = caduca;
             }
-            
+
 
             if (mHttpContextAccessor.HttpContext.Request.Scheme.Equals("https"))
             {
@@ -618,7 +725,7 @@ namespace Gnoss.Web.Login
             {
                 if (mUtilIdiomas == null)
                 {
-                    mUtilIdiomas = new UtilIdiomas("es", mLoggingService, mEntityContext, mConfigService);
+                    mUtilIdiomas = new UtilIdiomas("es", mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper);
                 }
                 return mUtilIdiomas;
             }

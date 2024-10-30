@@ -88,7 +88,15 @@ namespace Gnoss.Web.Login
                         //Así la cookie nunca caduca
                         caduca = DateTime.MaxValue;
                     }
-                    Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookie, mEntityContext), new CookieOptions { Expires = caduca });
+                    CookieOptions cookieUsuarioOptions = new CookieOptions();
+                    cookieUsuarioOptions.Expires = caduca;
+                    cookieUsuarioOptions.HttpOnly = true;
+                    cookieUsuarioOptions.SameSite = SameSiteMode.Lax;
+                    if (mConfigService.PeticionHttps())
+                    {                    
+                        cookieUsuarioOptions.Secure = true;   
+                    }
+                    Response.Cookies.Append("_UsuarioActual", UtilCookies.ToLegacyCookieString(cookie, mEntityContext), cookieUsuarioOptions);
                 }
             }
 

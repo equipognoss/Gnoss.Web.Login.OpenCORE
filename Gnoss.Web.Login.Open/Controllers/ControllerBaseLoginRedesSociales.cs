@@ -271,7 +271,7 @@ namespace Gnoss.Web.Login
             {
 
                 ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
+                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
                 proyCN.Dispose();
             }
             else
@@ -373,7 +373,7 @@ namespace Gnoss.Web.Login
             if (ProyectoSeleccionado.Clave != ProyectoAD.MetaProyecto)
             {
                 ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
+                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
                 proyCN.Dispose();
             }
             else
@@ -425,6 +425,7 @@ namespace Gnoss.Web.Login
         public string ObtenerDatos(string pUrl)
         {
             HttpClient client = new HttpClient();
+            client.DefaultRequestHeaders.Add("UserAgent", UtilWeb.GenerarUserAgent());
             Stream dataStream = client.GetStreamAsync($"{pUrl}").Result;
             StreamReader reader = new StreamReader(dataStream);
             string responseFromServer = reader.ReadToEnd();

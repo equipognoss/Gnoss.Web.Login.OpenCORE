@@ -14,6 +14,7 @@ using Es.Riam.Gnoss.CL.Usuarios;
 using Es.Riam.Gnoss.Elementos.Identidad;
 using Es.Riam.Gnoss.Elementos.ParametroAplicacion;
 using Es.Riam.Gnoss.Elementos.ServiciosGenerales;
+using Es.Riam.Gnoss.Logica.ParametroAplicacion;
 using Es.Riam.Gnoss.Logica.ServiciosGenerales;
 using Es.Riam.Gnoss.Logica.Usuarios;
 using Es.Riam.Gnoss.Recursos;
@@ -27,7 +28,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -68,7 +71,7 @@ namespace Gnoss.Web.Login
         /// Obtiene si en este ecosistema hay que validar el registro o no.
         /// </summary>
         private bool? mRegistroAutomaticoEcosistema = null;
-
+        private string mDominioPaginasAdministracion = "";
         protected LoggingService mLoggingService;
         protected IHttpContextAccessor mHttpContextAccessor;
         protected EntityContext mEntityContext;
@@ -82,10 +85,11 @@ namespace Gnoss.Web.Login
         protected IServicesUtilVirtuosoAndReplication mServicesUtilVirtuosoAndReplication;
         private static object BLOQUEO_COMPROBACION_TRAZA = new object();
         private static DateTime HORA_COMPROBACION_TRAZA;
-
+        private ILogger mlogger;
+        private ILoggerFactory mLoggerFactory;
         #endregion
 
-        public ControllerBaseLogin(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication)
+        public ControllerBaseLogin(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ControllerBaseLogin> logger, ILoggerFactory loggerFactory)
         {
             mLoggingService = loggingService;
             mHttpContextAccessor = httpContextAccessor;
@@ -96,8 +100,10 @@ namespace Gnoss.Web.Login
             mGnossCache = gnossCache;
             mEntityContextBASE = entityContextBASE;
             mVirtuosoAD = virtuosoAD;
+            mlogger = logger;
+            mLoggerFactory = loggerFactory;
             mServicesUtilVirtuosoAndReplication = servicesUtilVirtuosoAndReplication;
-            mControladorBase = new ControladorBase(loggingService, configService, entityContext, redisCacheWrapper, gnossCache, virtuosoAD, httpContextAccessor, mServicesUtilVirtuosoAndReplication);
+            mControladorBase = new ControladorBase(loggingService, configService, entityContext, redisCacheWrapper, gnossCache, virtuosoAD, httpContextAccessor, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ControladorBase>(), mLoggerFactory);
         }
 
         #region Metodos de eventos
@@ -159,7 +165,7 @@ namespace Gnoss.Web.Login
                     if (DateTime.Now > HORA_COMPROBACION_TRAZA)
                     {
                         HORA_COMPROBACION_TRAZA = DateTime.Now.AddSeconds(15);
-                        TrazasCL trazasCL = new TrazasCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+                        TrazasCL trazasCL = new TrazasCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<TrazasCL>(), mLoggerFactory);
                         string tiempoTrazaResultados = trazasCL.ObtenerTrazaEnCache("login");
 
                         if (!string.IsNullOrEmpty(tiempoTrazaResultados))
@@ -225,9 +231,10 @@ namespace Gnoss.Web.Login
                 if (queryParams["redirect"] != null)
                 {
                     redirect = HttpUtility.UrlDecode(queryParams["redirect"]);
-                    if (!redirect.Equals(ComprobarRedirectValido(redirect, pProyectoID, pIdioma)))
+                    string redirectValido = ComprobarRedirectValido(redirect, pProyectoID, pIdioma);
+                    if (!redirect.Equals(redirectValido))
                     {
-                        redirect = ComprobarRedirectValido(redirect, pProyectoID, pIdioma);
+                        redirect = redirectValido;
                     }
                 }
                 if (queryParams.Count > 0)
@@ -273,24 +280,27 @@ namespace Gnoss.Web.Login
                 {
                     pProyectoID = new Guid("11111111-1111-1111-1111-111111111111");
                 }
-                ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
-                GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(pProyectoID), mLoggingService, mEntityContext);
+                ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(pProyectoID), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
                 Proyecto proyecto = gestorProy.ListaProyectos[pProyectoID];
                 
                 try
                 {
-                    if (!mEnv.IsDevelopment() || (mEnv.IsDevelopment() && !pUrlRedirect.Contains("depuracion.net")))
+                    if (!mEnv.IsDevelopment() || (mEnv.IsDevelopment() && !pUrlRedirect.Contains("depuracion")))
                     {
                         string hostRedirect = new Uri(pUrlRedirect).Host;
                         string hostProyecto = new Uri(proyecto.UrlPropia(pIdioma)).Host;
                         string urlServicioLogin = mConfigService.ObtenerUrlServicioLogin();
-
-                        if (!hostRedirect.Equals(hostProyecto) && !pUrlRedirect.StartsWith(urlServicioLogin))
+                        mLoggingService.GuardarLogError("1. Comprobar la redireccion", mlogger);
+                        mLoggingService.GuardarLogError($"1.1 hostRedirect: {hostRedirect}", mlogger);
+                        mLoggingService.GuardarLogError($"1.2 hostProyecto: {hostProyecto}", mlogger);
+                        mLoggingService.GuardarLogError($"1.3 pUrlRedirect: {pUrlRedirect}", mlogger);
+                        mLoggingService.GuardarLogError($"1.4 DominioPaginasAdministracion: {DominioPaginasAdministracion}", mlogger);
+                        if (!hostRedirect.Equals(hostProyecto) && !pUrlRedirect.StartsWith(urlServicioLogin) && (!string.IsNullOrEmpty(DominioPaginasAdministracion) && !DominioPaginasAdministracion.Contains(hostRedirect)))
                         {
                             pUrlRedirect = proyecto.UrlPropia(pIdioma);
                         }
                     }
-
                 }
                 catch
                 {
@@ -298,6 +308,7 @@ namespace Gnoss.Web.Login
                 }
             }
             redirect = pUrlRedirect;
+            mLoggingService.GuardarLogError($"La redireccion es: {redirect}", mlogger);
             return redirect;
         }
 
@@ -315,7 +326,7 @@ namespace Gnoss.Web.Login
             {
                 // Autenticamos el login para la organización (autenticación parcial)
                 Configuracion.ObtenerDesdeFicheroConexion = true;
-                UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
                 DataWrapperUsuario dataWrapperUsuario = new DataWrapperUsuario();
 
                 if (!string.IsNullOrEmpty(pNombre))
@@ -337,7 +348,7 @@ namespace Gnoss.Web.Login
                 }
 
 
-                PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<PersonaCN>(), mLoggerFactory);
                 Es.Riam.Gnoss.AD.EntityModel.Models.PersonaDS.Persona filaPersona = personaCN.ObtenerPersonaPorUsuario(filaUsuario.UsuarioID).ListaPersona.FirstOrDefault();
 
                 mUsuarioID = filaUsuario.UsuarioID;
@@ -363,8 +374,8 @@ namespace Gnoss.Web.Login
         [NonAction]
         protected void LoguearUsuario(Guid pUsuarioID, Guid pPersonaID, string pNombreCorto, string pLogin, string pIdioma)
         {
-            UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-            UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
+            UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCL>(), mLoggerFactory);
             usuarioCL.ReiniciarNumeroIntentosDeLoginUsuario(pUsuarioID);
             usuarioCL.Dispose();
             // Usuario logueado correctamente, actualizo el contador de accesos
@@ -385,7 +396,7 @@ namespace Gnoss.Web.Login
             {
                 if (mControladorIdentidades == null)
                 {
-                    mControladorIdentidades = new ControladorIdentidades(new GestionIdentidades(new DataWrapperIdentidad(), mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication), mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper, mGnossCache, mEntityContextBASE, mVirtuosoAD, mHttpContextAccessor, mServicesUtilVirtuosoAndReplication);
+                    mControladorIdentidades = new ControladorIdentidades(new GestionIdentidades(new DataWrapperIdentidad(), mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication), mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper, mGnossCache, mEntityContextBASE, mVirtuosoAD, mHttpContextAccessor, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ControladorIdentidades>(), mLoggerFactory);
                 }
                 return mControladorIdentidades;
             }
@@ -401,7 +412,7 @@ namespace Gnoss.Web.Login
         [NonAction]
         public bool ValidarUsuarioPendienteDeActivar(string pNombre, string pContrasenia)
         {
-            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
 
             Es.Riam.Gnoss.AD.EntityModel.Models.UsuarioDS.Usuario filaUsuario = usuarioCN.ObtenerFilaUsuarioPorLoginOEmail(pNombre);
             GestorParametroAplicacion gestorParametroAplicacion = new GestorParametroAplicacion();
@@ -491,7 +502,7 @@ namespace Gnoss.Web.Login
             }
             catch (Exception ex)
             {
-                mLoggingService.GuardarLogError(ex);
+                mLoggingService.GuardarLogError(ex, mlogger);
             }
 
             if (!string.IsNullOrEmpty(pUrlVuelta) && !pUrlVuelta.EndsWith("/"))
@@ -595,8 +606,8 @@ namespace Gnoss.Web.Login
             // Ej: servicios.didactalia.net -> .didactalia.net, servicios.gnoss.com -> .gnoss.com
             // De esta manera la cookie llega a didactalia.net, red.didactalia.net, gnoss.com, red.gnoss.com, redprivada.gnoss.com...
             string[] dominio = pDominioAplicacion.Split('.', StringSplitOptions.RemoveEmptyEntries);
-
-            if (dominio.Length > 1)
+            
+            if (dominio.Length > 1 && string.IsNullOrEmpty(DominioPaginasAdministracion))
             {
                 usuarioLogueadoOptions.Domain = $".{dominio[dominio.Length - 2]}.{dominio[dominio.Length - 1]}";
             }
@@ -604,6 +615,8 @@ namespace Gnoss.Web.Login
             {
                 usuarioLogueadoOptions.Domain = pDominioAplicacion;
             }
+            mLoggingService.GuardarLogError($"Dominio de la cookie: {usuarioLogueadoOptions.Domain}", mlogger);
+
             if (!cookieSesion)
             {
                 usuarioLogueadoOptions.Expires = caduca;
@@ -725,7 +738,7 @@ namespace Gnoss.Web.Login
             {
                 if (mUtilIdiomas == null)
                 {
-                    mUtilIdiomas = new UtilIdiomas("es", mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper);
+                    mUtilIdiomas = new UtilIdiomas("es", mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper, mLoggerFactory.CreateLogger<UtilIdiomas>(), mLoggerFactory);
                 }
                 return mUtilIdiomas;
             }
@@ -804,6 +817,16 @@ namespace Gnoss.Web.Login
             }
         }
 
+        public string DominioPaginasAdministracion
+        {
+            get
+            {
+                ParametroAplicacionCN parametroAplicacionCN = new ParametroAplicacionCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ParametroAplicacionCN>(), mLoggerFactory);
+                mDominioPaginasAdministracion = parametroAplicacionCN.ObtenerParametroAplicacion(TiposParametrosAplicacion.DominioPaginasAdministracion);
+                return mDominioPaginasAdministracion;
+            }
+        }
+
         /// <summary>
         /// Obtiene el dataset de parámetros de aplicación
         /// </summary>
@@ -813,7 +836,7 @@ namespace Gnoss.Web.Login
             {
                 if (mParametrosAplicacionDS == null)
                 {
-                    ParametroAplicacionCL paramCL = new ParametroAplicacionCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+                    ParametroAplicacionCL paramCL = new ParametroAplicacionCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ParametroAplicacionCL>(), mLoggerFactory);
                     mParametrosAplicacionDS = paramCL.ObtenerParametrosAplicacionPorContext();
                 }
                 return mParametrosAplicacionDS;

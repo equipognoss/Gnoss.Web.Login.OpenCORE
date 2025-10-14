@@ -31,6 +31,7 @@ using Es.Riam.Gnoss.Logica.Usuarios;
 using Es.Riam.Gnoss.Util.Configuracion;
 using Es.Riam.Gnoss.Util.General;
 using Es.Riam.Gnoss.Web.Controles.ServiciosGenerales;
+using Es.Riam.Interfaces.InterfacesOpen;
 using Es.Riam.Util;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Hosting;
@@ -38,7 +39,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Amqp.Framing;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -68,10 +71,15 @@ namespace Gnoss.Web.Login
 
         private string mUrlIntragnoss;
         private string mUrlIntragnossServicios;
-
-        public LoginController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication)
-             : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication)
+        private IAvailableServices mAvailableServices;
+        private ILogger mlogger;
+        private ILoggerFactory mLoggerFactory;
+        public LoginController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, IAvailableServices availableServices, ILogger<LoginController> logger, ILoggerFactory loggerFactory)
+             : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
         {
+            mAvailableServices = availableServices;
+            mlogger = logger;
+            mLoggerFactory = loggerFactory;
         }
 
 
@@ -97,22 +105,21 @@ namespace Gnoss.Web.Login
                     string query = uriRedirect.Query;
                     if (!string.IsNullOrEmpty(query))
                     {
-                        redirect1 = ComprobarQueryString(query, proyectoID, idioma);
-                        NameValueCollection queryString = HttpUtility.ParseQueryString(redirect1);
+                        query = ComprobarQueryString(query, proyectoID, idioma);
+                        NameValueCollection queryString = HttpUtility.ParseQueryString(query);
                         if (queryString["redirect"] != null)
                         {
                             redirect1 = queryString["redirect"];
                         }
                         else
                         {
-                            redirect1 = "";
-                        }
+							redirect1 = ComprobarRedirectValido(redirect1, proyectoID, idioma);
+						}
                     }
-                    
-                }
+				}
                 catch (Exception ex) 
                 {
-                    mLoggingService.GuardarLogError(ex.Message);
+                    mLoggingService.GuardarLogError(ex.Message, mlogger);
                 }
             }
             if (!string.IsNullOrEmpty(Request.Query["redirect"]))
@@ -185,7 +192,7 @@ namespace Gnoss.Web.Login
 
             if (!urlFormulario.Contains("&redirect=") && !Request.Headers.ContainsKey("redirect") && Request.Headers.ContainsKey("Referer") && !Request.Path.ToString().Equals(Request.Headers["Referer"].ToString()) && !Request.Headers["Referer"].ToString().Contains(UtilIdiomas.GetText("URLSEM", "DESCONECTAR")))
             {
-                urlFormulario += "&redirect=" + HttpUtility.UrlEncode(Request.Headers["Referer"].ToString());
+                urlFormulario += "&redirect=" + ComprobarRedirectValido(HttpUtility.UrlEncode(Request.Headers["Referer"].ToString()), proyectoID, idioma);
             }
 
             if (Request.Method.Equals("POST") && Request.Form.Count > 1 && (Request.Form.ContainsKey("usuario")) && (Request.Form.ContainsKey("password")) && Request.Headers.ContainsKey("Referer"))
@@ -201,7 +208,7 @@ namespace Gnoss.Web.Login
 
                 if (!ComprobarSiUsuarioPuedeHacerLogin(login))
                 {
-                    RedirigirConError(redirect1, "#UsuarioBloqueado");
+                    RedirigirConError(redirect1, "#UsuarioBloqueado", idioma);
                     return Content("");
                 }
 
@@ -218,7 +225,7 @@ namespace Gnoss.Web.Login
                         if (errorLoginExterno.StartsWith("error="))
                         {
                             //Guardo el error en el log
-                            mLoggingService.GuardarLogError("Se ha producido un error en el servicio de login externo:" + errorLoginExterno);
+                            mLoggingService.GuardarLogError("Se ha producido un error en el servicio de login externo:" + errorLoginExterno, mlogger);
                             almohadillaerror = "#errorAutenticacionExterna";
                         }
                         else if (errorLoginExterno.StartsWith("sinactivar"))
@@ -258,7 +265,7 @@ namespace Gnoss.Web.Login
                         }
                         catch (Exception ex)
                         {
-                            mLoggingService.GuardarLogError(ex);
+                            mLoggingService.GuardarLogError(ex, mlogger);
                         }
 
                         if (jsonLogin != null)
@@ -266,7 +273,7 @@ namespace Gnoss.Web.Login
                             if (jsonLogin.EstadoLogin.Equals(TipoEstadoLoginExterno.LoginOK))
                             {
                                 //Obtener login por usuarioID
-                                UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                                UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
                                 string loginUsuario = usuarioCN.ObtenerLoginUsuarioPorNombreCorto(usuarioCN.ObtenerNombreCortoUsuarioPorID(jsonLogin.UsuarioID));
                                 usuarioCN.Dispose();
 
@@ -285,8 +292,8 @@ namespace Gnoss.Web.Login
                                 if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
                                 {
                                     Guid proyectoID1 = new Guid(Request.Query["proyectoID"]);
-                                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
-                                    GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID1), mLoggingService, mEntityContext);
+                                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                                    GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID1), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                                     Proyecto proyecto = gestorProy.ListaProyectos[proyectoID1];
                                     if (proyecto.ListaTipoProyectoEventoAccion.ContainsKey(TipoProyectoEventoAccion.Login))
@@ -320,11 +327,11 @@ namespace Gnoss.Web.Login
 
                     if (CapchaActivo && numIntentosIP > 2 && !ValidarTokenCaptcha(token1, captcha))
                     {
-                        RedirigirConError(redirect1, almohadillaerror);
+                        RedirigirConError(redirect1, almohadillaerror, idioma);
                     }
                     else if (loguear && ValidarUsuario(login, passwd, codigoVerificacion, false, estaValidado) && !mostrarPanelActivacionExterno && estaValidado)
                     {
-                        UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);                       
+                        UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);                       
                         Guid usuarioID = (Guid)usuarioCN.ObtenerUsuarioIDPorLoginOEmail(login);
                       
 
@@ -353,8 +360,8 @@ namespace Gnoss.Web.Login
                         if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
                         {
                             Guid proyectoID1 = new Guid(Request.Query["proyectoID"]);
-                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
-                            GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID1), mLoggingService, mEntityContext);
+                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                            GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID1), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                             Proyecto proyecto = gestorProy.ListaProyectos[proyectoID1];
                             if (proyecto.ListaTipoProyectoEventoAccion.ContainsKey(TipoProyectoEventoAccion.Login))
@@ -368,11 +375,11 @@ namespace Gnoss.Web.Login
 
                         if (filaParametro != null && !string.IsNullOrEmpty(filaParametro.Valor) && filaParametro.Valor.ToLower().Equals("##comunidadorigen##"))
                         {
-                            SolicitudCN solicitudCN = new SolicitudCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                            SolicitudCN solicitudCN = new SolicitudCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<SolicitudCN>(), mLoggerFactory);
                             Es.Riam.Gnoss.AD.EntityModel.Models.UsuarioDS.Usuario filaUsuario = usuarioCN.ObtenerFilaUsuarioPorLoginOEmail(login);
                             if (filaUsuario != null)
                             {
-                                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
                                 Guid proyOrigenUsuario = solicitudCN.ObtenerProyectoOrigenUsuario(filaUsuario.UsuarioID);
                                 string nombreCortoProyOrigen = proyCN.ObtenerNombreCortoProyecto(proyOrigenUsuario);
                                 if (!string.IsNullOrEmpty(nombreCortoProyOrigen) && !proyOrigenUsuario.Equals(ProyectoAD.MetaProyecto))
@@ -397,17 +404,22 @@ namespace Gnoss.Web.Login
                         if (Uri.TryCreate(redirect1, UriKind.RelativeOrAbsolute, out uriRedirect))
                         {
                             dominioDeVuelta = UtilDominios.ObtenerDominioUrl(new Uri(redirect1), true);
+                            string rutaEjecucionWeb = mConfigService.ObtenerRutaEjecucionWeb();
+                            if (!string.IsNullOrEmpty(rutaEjecucionWeb))
+                            {
+                                dominioDeVuelta = $"{dominioDeVuelta}/{rutaEjecucionWeb.Trim('/')}";
+                            }
                         }
                         else
                         {
-                            mLoggingService.GuardarLogError($"La url {redirect1} no es válida. Imposible obtener el dominio. ");
+                            mLoggingService.GuardarLogError($"La url {redirect1} no es válida. Imposible obtener el dominio. ", mlogger);
                         }
 
                         EnviarCookies(dominioDeVuelta, redirect1, token1, mismoUsuarioLogueado);
                     }
                     else
                     {
-                        UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                        UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
                         Es.Riam.Gnoss.AD.EntityModel.Models.UsuarioDS.Usuario filaUsuario = null;
 
                         if (loguear && ValidarUsuario(login, passwd, codigoVerificacion, false, estaValidado))
@@ -420,7 +432,7 @@ namespace Gnoss.Web.Login
                         if (filaUsuario != null)
                         {
                             bool registroCompleto = true;                          
-                            SolicitudCN solicitudCN = new SolicitudCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                            SolicitudCN solicitudCN = new SolicitudCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<SolicitudCN>(), mLoggerFactory);
                             DataWrapperSolicitud solicitudDW = solicitudCN.ObtenerSolicitudesDeUsuario(filaUsuario.UsuarioID);
                             SolicitudNuevoUsuario filaSolicitud = null;
                             if (solicitudDW.ListaSolicitudNuevoUsuario.Count > 0)
@@ -435,19 +447,19 @@ namespace Gnoss.Web.Login
                                         Guid proyectoID1 = solicitudDW.ListaSolicitud.Find(solicitud => solicitud.SolicitudID.Equals(filaSolicitud.SolicitudID)).ProyectoID;
                                         if (proyectoID1 != ProyectoAD.MetaProyecto)
                                         {
-                                            string urlCompletarRegistro = BaseURLIdioma + "/" + UtilIdiomas.GetText("URLSEM", "COMUNIDAD") + "/" + new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication).ObtenerNombreCortoProyecto(proyectoID1) + "/" + UtilIdiomas.GetText("URLSEM", "COMPLETARREGISTRO") + "/" + filaSolicitud.UsuarioID.ToString();
+                                            string urlCompletarRegistro = BaseURLIdioma + "/" + UtilIdiomas.GetText("URLSEM", "COMUNIDAD") + "/" + new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory).ObtenerNombreCortoProyecto(proyectoID1) + "/" + UtilIdiomas.GetText("URLSEM", "COMPLETARREGISTRO") + "/" + filaSolicitud.UsuarioID.ToString();
                                             Response.Redirect(urlCompletarRegistro);
                                         }
                                     }
                                 }
                             }
 
-                            PersonaCN persCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                            PersonaCN persCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<PersonaCN>(), mLoggerFactory);
                             Es.Riam.Gnoss.AD.EntityModel.Models.PersonaDS.Persona filaPersona = persCN.ObtenerFilaPersonaPorUsuario(filaUsuario.UsuarioID);
 
                             if (registroCompleto && (mostrarPanelActivacionExterno || usuarioCN.ValidarPasswordUsuarioSinActivar(filaUsuario, passwd)) && (filaPersona == null || !filaPersona.Eliminado) || filaUsuario.Validado == 0)
                             {
-                                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
                                 string urlProy = mControladorBase.UrlsSemanticas.ObtenerURLComunidad(UtilIdiomas, BaseURLIdioma, proyCN.ObtenerNombreCortoProyecto(new Guid(Request.Query["proyectoID"])));
                                 proyCN.Dispose();
                                 string urlRedireccion = $"{urlProy}/{UtilIdiomas.GetText("URLSEM", "REENVIAREMAILVERIFICACION")}/{filaSolicitud.SolicitudID.ToString()}";
@@ -471,7 +483,7 @@ namespace Gnoss.Web.Login
                         }
                         if (redirigirConError)
                         {
-                            RedirigirConError(redirect1, almohadillaerror);
+                            RedirigirConError(redirect1, almohadillaerror, idioma);
                         }
                     }
                 }
@@ -486,12 +498,12 @@ namespace Gnoss.Web.Login
             bool loginPermitido = true;
             try
             {
-                UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
                 Guid usuarioID = (Guid)usuarioCN.ObtenerUsuarioIDPorLoginOEmail(pLoginUsuario);
                 
                 if (!usuarioID.Equals(Guid.Empty))
                 {
-                    UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+                    UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCL>(), mLoggerFactory);
                     EstadoLoginUsuario estadoLogin = usuarioCL.ComprobarSiUsuarioPuedeHacerLogin(usuarioID);
                     if (estadoLogin.Equals(EstadoLoginUsuario.Bloqueado))
                     {
@@ -503,7 +515,7 @@ namespace Gnoss.Web.Login
             }
             catch (Exception ex)
             {
-                mLoggingService.GuardarLogError(ex, $"Error al comprobar el numero de peticiones del usuario {pLoginUsuario}. Error: {ex.Message}");
+                mLoggingService.GuardarLogError(ex, $"Error al comprobar el numero de peticiones del usuario {pLoginUsuario}. Error: {ex.Message}", mlogger);
             }
 
             return loginPermitido;
@@ -513,7 +525,7 @@ namespace Gnoss.Web.Login
         private bool ValidadoUsuario(string login)
         {
             bool validado = false;
-            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
             Es.Riam.Gnoss.AD.EntityModel.Models.UsuarioDS.Usuario filaUsuario = null;
             filaUsuario = usuarioCN.ObtenerFilaUsuarioPorLoginOEmail(login);
             if (filaUsuario == null || filaUsuario.Validado != (short)ValidacionUsuario.SinVerificar)
@@ -524,7 +536,7 @@ namespace Gnoss.Web.Login
         }
 
         [NonAction]
-        private void RedirigirConError(string pRedirect, string pAlmohadillaerror)
+        private void RedirigirConError(string pRedirect, string pAlmohadillaerror, string pIdioma)
         {
             if (pRedirect.Contains("/" + UtilIdiomas.GetText("URLSEM", "LOGIN") + "/") || pRedirect.Contains("/" + UtilIdiomas.GetText("URLSEM", "ACEPTARINVITACION") + "/") || pRedirect.Contains("/" + UtilIdiomas.GetText("URLSEM", "HAZTEMIEMBRO")))
             {
@@ -547,20 +559,16 @@ namespace Gnoss.Web.Login
                     urlOrigen = Request.Headers["Referer"].ToString();
                 }
 
-                string language = "es";
-                // Busco la primera / a partir del índice 8 para quitar https://
-                int indicePrimerFragmento = urlOrigen.IndexOf('/', 8) + 1;
-                int indiceFinPrimerFragmento = urlOrigen.IndexOf('/', indicePrimerFragmento);
-                int longitudFragmento = indiceFinPrimerFragmento - indicePrimerFragmento;
+                string language = pIdioma;
 
-                if (longitudFragmento == 2)
+                if (string.IsNullOrEmpty(language))
                 {
-                    language = Request.Headers["Referer"].ToString().Substring(indicePrimerFragmento, longitudFragmento);
+                    language = "es";
                 }
 
-                Es.Riam.Gnoss.Recursos.UtilIdiomas utilIdiomas = new Es.Riam.Gnoss.Recursos.UtilIdiomas(language, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper);
+                Es.Riam.Gnoss.Recursos.UtilIdiomas utilIdiomas = new Es.Riam.Gnoss.Recursos.UtilIdiomas(language, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper, mLoggerFactory.CreateLogger<Es.Riam.Gnoss.Recursos.UtilIdiomas>(), mLoggerFactory);
 
-                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
 
                 Guid proyectoID = ProyectoAD.MetaProyecto;
                 if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
@@ -619,7 +627,7 @@ namespace Gnoss.Web.Login
         [NonAction]
         private int ObtenerNumIntentosIP(string IP)
         {
-            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<SeguridadCL>(), mLoggerFactory);
             return seguridadCL.ObtenerNumIntentosIP(IP);
         }
         [NonAction]
@@ -629,19 +637,19 @@ namespace Gnoss.Web.Login
             {
                 return false;
             }
-            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<SeguridadCL>(), mLoggerFactory);
             return seguridadCL.ValidarTokenCaptcha(token, captcha);
         }
         [NonAction]
         private void InvalidarTokenCaptcha(string token)
         {
-            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<SeguridadCL>(), mLoggerFactory);
             seguridadCL.EliminarCaptchaToken(token);
         }
         [NonAction]
         private void AumentarNumIntentosIP(string IP)
         {
-            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            SeguridadCL seguridadCL = new SeguridadCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<SeguridadCL>(), mLoggerFactory);
             seguridadCL.AumentarNumIntentosIP(IP);
         }
 
@@ -755,7 +763,7 @@ namespace Gnoss.Web.Login
                 else
                 {
                     //Login
-                    UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                    UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
                     DataWrapperUsuario usuarioDWLogin = usuarioCN.ObtenerUsuarioPorLoginOEmail(pLogin, false);
 
                     if (usuarioDWLogin.ListaUsuario.Count == 0)
@@ -788,7 +796,7 @@ namespace Gnoss.Web.Login
                             }
 
                             //Usuario
-                            GestionUsuarios gestorUsuarios = new GestionUsuarios(usuarioDWLogin, mLoggingService, mEntityContext, mConfigService);
+                            GestionUsuarios gestorUsuarios = new GestionUsuarios(usuarioDWLogin, mLoggingService, mEntityContext, mConfigService, mLoggerFactory.CreateLogger<GestionUsuarios>(), mLoggerFactory);
 
                             UsuarioGnoss usuario = gestorUsuarios.AgregarUsuario(loginUsuario, nombreCortoUsuario, HashHelper.CalcularHash(pPasswd, true), true);
 
@@ -798,12 +806,12 @@ namespace Gnoss.Web.Login
 
                             //Cargamos datos del proyecto
                             Guid ProyectoSeleccionadoID = new Guid(Request.Query["proyectoID"]);
-                            ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                            GestionProyecto gestorProy = new GestionProyecto(proyCN.ObtenerProyectoPorID(ProyectoSeleccionadoID), mLoggingService, mEntityContext);
+                            ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
+                            GestionProyecto gestorProy = new GestionProyecto(proyCN.ObtenerProyectoPorID(ProyectoSeleccionadoID), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
                             proyCN.Dispose();
                             Proyecto ProyectoSeleccionado = gestorProy.ListaProyectos[ProyectoSeleccionadoID];
 
-                            ParametroGeneralCN paramCN = new ParametroGeneralCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                            ParametroGeneralCN paramCN = new ParametroGeneralCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ParametroGeneralCN>(), mLoggerFactory);
                             Es.Riam.Gnoss.AD.EntityModel.Models.ParametroGeneralDS.ParametroGeneral ParametrosGeneralesRow = paramCN.ObtenerFilaParametrosGeneralesDeProyecto(ProyectoSeleccionadoID);
                             paramCN.Dispose();
 
@@ -850,7 +858,7 @@ namespace Gnoss.Web.Login
                             {
                                 GuardarDatosExtra(solicitudDW, filaSolicitud, jsonNuevoUsuario.extra_data, ProyectoSeleccionado);
 
-                                ControladorIdentidades.AceptarUsuario(filaSolicitud.SolicitudID, solicitudDW, usuarioDWLogin, ProyectoSeleccionado, ProyectoSeleccionado.FilaProyecto.URLPropia, UrlIntragnoss, UrlIntragnossServicios);
+                                ControladorIdentidades.AceptarUsuario(filaSolicitud.SolicitudID, solicitudDW, usuarioDWLogin, ProyectoSeleccionado, ProyectoSeleccionado.FilaProyecto.URLPropia, UrlIntragnoss, UrlIntragnossServicios, mAvailableServices);
                                 pRedirect = mControladorBase.UrlsSemanticas.ObtenerURLComunidad(UtilIdiomas, BaseURLIdioma, ProyectoSeleccionado.NombreCorto) + "/" + UtilIdiomas.GetText("URLSEM", "REGISTROUSUARIO") + "/1?prefer=1";
                             }
                             else
@@ -887,8 +895,8 @@ namespace Gnoss.Web.Login
                         if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
                         {
                             Guid proyectoID = new Guid(Request.Query["proyectoID"]);
-                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
-                            GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID), mLoggingService, mEntityContext);
+                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                            GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                             Proyecto proyecto = gestorProy.ListaProyectos[proyectoID];
                             if (proyecto.ListaTipoProyectoEventoAccion.ContainsKey(TipoProyectoEventoAccion.Login))
@@ -913,7 +921,7 @@ namespace Gnoss.Web.Login
         [NonAction]
         private void GuardarDatosExtra(DataWrapperSolicitud pSolicitudDW, Solicitud pSolicitudRow, List<JsonDatosExtraUsuario> pDatosExtra, Proyecto pProyecto)
         {
-            ProyectoCN proyectoCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            ProyectoCN proyectoCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
             DataWrapperProyecto dataWrapperProyecto = proyectoCN.ObtenerDatosExtraProyectoPorID(pProyecto.Clave);
             proyectoCN.Dispose();
 
@@ -954,18 +962,20 @@ namespace Gnoss.Web.Login
         /// </summary>
         private void AutenticarUsuarioConDobleFactor(string pLogin, string pBaseURL, string pIdioma, Guid pProyectoID, Guid pUsuarioID)
         {
+            Es.Riam.Gnoss.Recursos.UtilIdiomas utilIdiomas = new Es.Riam.Gnoss.Recursos.UtilIdiomas(pIdioma, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper, mLoggerFactory.CreateLogger<Es.Riam.Gnoss.Recursos.UtilIdiomas>(), mLoggerFactory);
             //Genera el token para la doble autenticacion
             string tokenAutenticacion = GenerarToken();
-            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
+            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
             //Agrega el token a cache durante 10 minutos
             proyectoCL.AgregarObjetoCache($"DobleAutenticacion_{tokenAutenticacion}", pLogin, 600);
 
-            ProyectoCN proyectoCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-            GestionProyecto gestionProyecto = new GestionProyecto(new DataWrapperProyecto(), mLoggingService, mEntityContext);
+            ProyectoCN proyectoCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
+            GestionProyecto gestionProyecto = new GestionProyecto(new DataWrapperProyecto(), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
             Proyecto proyecto = new Proyecto(proyectoCN.ObtenerProyectoPorIDCargaLigera(pProyectoID), gestionProyecto, mLoggingService, mEntityContext);
 
-            GnossUrlsSemanticas gnossUrlsSemanticas = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication);
-            string urlBase = gnossUrlsSemanticas.ObtenerURLComunidad(new Es.Riam.Gnoss.Recursos.UtilIdiomas(pIdioma, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper), pBaseURL, proyecto.NombreCorto);
+            GnossUrlsSemanticas gnossUrlsSemanticas = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<GnossUrlsSemanticas>(), mLoggerFactory);
+            
+            string urlBase = gnossUrlsSemanticas.ObtenerURLComunidad(utilIdiomas, pBaseURL, proyecto.NombreCorto);
 
             //Envia el correo al usuario con el token para autenticarse
             EnviarCorreoAutenticacionDobleFactor(pUsuarioID, proyecto, tokenAutenticacion);
@@ -1000,7 +1010,7 @@ namespace Gnoss.Web.Login
             }
 
             //Redirige al usuario a la página de autenticacion
-            Response.Redirect($"{urlBase}/{UtilIdiomas.GetText("URLSEM", "AUTENTICACIONDOBLEFACTOR")}{redireccion}");
+            Response.Redirect($"{urlBase}/{utilIdiomas.GetText("URLSEM", "AUTENTICACIONDOBLEFACTOR")}{redireccion}");
         }
 
         /// <summary>
@@ -1038,7 +1048,7 @@ namespace Gnoss.Web.Login
             peticionDW.ListaPeticion.Add(filaPeticion);
             mEntityContext.Peticion.Add(filaPeticion);
 
-            PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<PersonaCN>(), mLoggerFactory);
             DataWrapperPersona dataWrapperPersona = personaCN.ObtenerPersonaPorUsuario(pUsuarioID);
 
             if (dataWrapperPersona.ListaPersona.Count > 0)
@@ -1046,13 +1056,13 @@ namespace Gnoss.Web.Login
                 GestionPersonas gestorPersonas = new GestionPersonas(dataWrapperPersona, mLoggingService, mEntityContext);
                 Es.Riam.Gnoss.AD.EntityModel.Models.PersonaDS.Persona filaPersona = dataWrapperPersona.ListaPersona.FirstOrDefault();
 
-                NotificacionCN notificacionCN = new NotificacionCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+                NotificacionCN notificacionCN = new NotificacionCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<NotificacionCN>(), mLoggerFactory);
 
-                GestionNotificaciones gestorNotificaciones = new GestionNotificaciones(new DataWrapperNotificacion(), mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication);
+                GestionNotificaciones gestorNotificaciones = new GestionNotificaciones(new DataWrapperNotificacion(), mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<GestionNotificaciones>(), mLoggerFactory);
 
                 gestorNotificaciones.AgregarNotificacionPeticionAutenticacionDobleFactor(gestorPersonas.ListaPersonas[filaPersona.PersonaID], token, proyecto, UtilIdiomas.LanguageCode);
 
-                notificacionCN.ActualizarNotificacion();
+                notificacionCN.ActualizarNotificacion(mAvailableServices);
             }
         }
 
@@ -1206,7 +1216,7 @@ namespace Gnoss.Web.Login
             {
                 if (mParametroAplicacion == null)
                 {
-                    ParametroAplicacionCL paramCL = new ParametroAplicacionCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+                    ParametroAplicacionCL paramCL = new ParametroAplicacionCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ParametroAplicacionCL>(), mLoggerFactory);
                     mParametroAplicacion = paramCL.ObtenerParametrosAplicacionPorContext();
                 }
                 return mParametroAplicacion;

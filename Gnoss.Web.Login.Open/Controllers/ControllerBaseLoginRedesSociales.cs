@@ -27,6 +27,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -85,12 +86,15 @@ namespace Gnoss.Web.Login
         /// Parámetros de un proyecto.
         /// </summary>
         private Dictionary<string, string> mParametroProyecto;
-
+        private ILogger mlogger;
+        private ILoggerFactory mLoggerFactory;
         #endregion
 
 
-        public ControllerBaseLoginRedesSociales(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication) : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication)
+        public ControllerBaseLoginRedesSociales(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ControllerBaseLoginRedesSociales> logger, ILoggerFactory loggerFactory) : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
         {
+            mlogger = logger;
+            mLoggerFactory = loggerFactory;
             //Recogemos los parámetros (token, proyecto e invitacion)
             string state = mHttpContextAccessor.HttpContext.Request.Query["state"];
             if (!string.IsNullOrWhiteSpace(mHttpContextAccessor.HttpContext.Request.Query["proyectoID"]))
@@ -173,7 +177,7 @@ namespace Gnoss.Web.Login
         public void ProcesarInicioDeSesionDeUsuario(TipoRedSocialLogin pTipoRedSocial, string pIDenRedSocial, string pNombre, string pApellidos, string pCorreo, DateTime? pFechaNacimiento, bool? pHombre)
         {
             //Si Ya esta vinculada iniciamos la vinculada
-            UsuarioCN usuarioCN = new UsuarioCN("acid",mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
             Guid usuarioGnossID = usuarioCN.ObtenerUsuarioPorLoginEnRedSocial(pTipoRedSocial, pIDenRedSocial);
 
             DataWrapperUsuario usuarioValidadoDW = usuarioCN.ObtenerUsuarioPorLoginOEmail(pCorreo, false);
@@ -221,8 +225,8 @@ namespace Gnoss.Web.Login
                 if (!string.IsNullOrEmpty(ProyectoIDSeleccionado))
                 {
                     Guid proyectoID = new Guid(ProyectoIDSeleccionado);
-                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
-                    GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID),mLoggingService, mEntityContext);
+                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                    GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID),mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                     Proyecto proyecto = gestorProy.ListaProyectos[proyectoID];
                     TipoProyectoEventoAccion tipoAccion = TipoProyectoEventoAccion.Login;
@@ -262,7 +266,7 @@ namespace Gnoss.Web.Login
             listaDatosUsuario.Add("token", "");
             listaDatosUsuario.Add("grupos", new Dictionary<string, List<string>>());
 
-            UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCL usuarioCL = new UsuarioCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCL>(), mLoggerFactory);
             usuarioCL.GuardarDatosRedSocial(pIDenRedSocial, listaDatosUsuario);
             usuarioCL.Dispose();
 
@@ -270,8 +274,8 @@ namespace Gnoss.Web.Login
             if (ProyectoSeleccionado.Clave != ProyectoAD.MetaProyecto)
             {
 
-                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
+                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
+                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<GnossUrlsSemanticas>(), mLoggerFactory).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
                 proyCN.Dispose();
             }
             else
@@ -340,7 +344,7 @@ namespace Gnoss.Web.Login
         {
             Configuracion.ObtenerDesdeFicheroConexion = true;
 
-            UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCN usuarioCN = new UsuarioCN("acid", mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
             DataWrapperUsuario dataWrapperUsuario = new DataWrapperUsuario();
 
             Es.Riam.Gnoss.AD.EntityModel.Models.UsuarioDS.Usuario filaUsuario = null;
@@ -364,7 +368,7 @@ namespace Gnoss.Web.Login
 
             usuarioCN.Dispose();
 
-            PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            PersonaCN personaCN = new PersonaCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<PersonaCN>(), mLoggerFactory);
             Es.Riam.Gnoss.AD.EntityModel.Models.PersonaDS.Persona filaPersona = personaCN.ObtenerPersonaPorUsuario(filaUsuario.UsuarioID).ListaPersona.FirstOrDefault();
 
             LoguearUsuario(filaUsuario.UsuarioID, filaPersona.PersonaID, filaUsuario.NombreCorto, filaUsuario.Login, filaPersona.Idioma);
@@ -372,8 +376,8 @@ namespace Gnoss.Web.Login
             string UrlComunidad = BaseURLIdioma;
             if (ProyectoSeleccionado.Clave != ProyectoAD.MetaProyecto)
             {
-                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
+                ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
+                UrlComunidad = new GnossUrlsSemanticas(mLoggingService, mEntityContext, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<GnossUrlsSemanticas>(), mLoggerFactory).GetURLHacerseMiembroComunidad(BaseURLIdioma, UtilIdiomas, proyCN.ObtenerNombreCortoProyecto(new Guid(ProyectoIDSeleccionado)), true);
                 proyCN.Dispose();
             }
             else
@@ -398,7 +402,7 @@ namespace Gnoss.Web.Login
 
         private void AgregarFilaUsuarioContadores(Guid pUsuarioID)
         {
-            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
+            UsuarioCN usuarioCN = new UsuarioCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<UsuarioCN>(), mLoggerFactory);
             usuarioCN.ActualizarContadorUsuarioNumAccesos(pUsuarioID);
             usuarioCN.Dispose();
         }
@@ -447,7 +451,7 @@ namespace Gnoss.Web.Login
             {
                 if (mParametroProyecto == null)
                 {
-                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService,mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication);
+                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
                     mParametroProyecto = proyectoCL.ObtenerParametrosProyecto(ProyectoSeleccionado.Clave);
                     proyectoCL.Dispose();
                 }
@@ -497,8 +501,8 @@ namespace Gnoss.Web.Login
                 {
                     Guid proyectoID = new Guid(ProyectoIDSeleccionado);
 
-                    ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                    GestionProyecto gestorProy = new GestionProyecto(proyCN.ObtenerProyectoPorID(proyectoID), mLoggingService, mEntityContext);
+                    ProyectoCN proyCN = new ProyectoCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCN>(), mLoggerFactory);
+                    GestionProyecto gestorProy = new GestionProyecto(proyCN.ObtenerProyectoPorID(proyectoID), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
                     proyCN.Dispose();
 
                     mProyectoSeleccionado = gestorProy.ListaProyectos[proyectoID];
@@ -535,8 +539,8 @@ namespace Gnoss.Web.Login
                 {
                     Guid peticionID = new Guid(InvitacionAComunidadID);
 
-                    PeticionCN peticionCN = new PeticionCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication);
-                    GestionPeticiones gestionPeticion = new GestionPeticiones(peticionCN.ObtenerPeticionPorID(peticionID),mLoggingService, mEntityContext);
+                    PeticionCN peticionCN = new PeticionCN(mEntityContext, mLoggingService, mConfigService, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<PeticionCN>(), mLoggerFactory);
+                    GestionPeticiones gestionPeticion = new GestionPeticiones(peticionCN.ObtenerPeticionPorID(peticionID),mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionPeticiones>(), mLoggerFactory);
                     mInvitacionAComunidad = (PeticionInvComunidad)gestionPeticion.ListaPeticiones[peticionID];
 
                     peticionCN.Dispose();

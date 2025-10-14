@@ -54,7 +54,7 @@ namespace Gnoss.Web.Login
         }
 
 
-        
+
     }
 
     public static class MiddlewareExtensions

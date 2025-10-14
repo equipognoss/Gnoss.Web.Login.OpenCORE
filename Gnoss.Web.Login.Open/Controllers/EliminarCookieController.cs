@@ -6,18 +6,20 @@ using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.Util.Configuracion;
 using Es.Riam.Gnoss.Util.General;
+using Es.Riam.Util;
 using Es.Riam.Web.Util;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Serilog.Core;
+using Serilog.Sinks.Http;
 using System;
 using System.Collections.Generic;
-using System.Net.Http.Headers;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
-using Serilog.Sinks.Http;
 using System.Threading.Tasks;
-using Es.Riam.Util;
 
 namespace Gnoss.Web.Login
 {
@@ -29,10 +31,13 @@ namespace Gnoss.Web.Login
     [Route("[controller]")]
     public class EliminarCookieController : ControllerBaseLogin
     {
-
-        public EliminarCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication)
-            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication)
+        private ILogger mlogger;
+        private ILoggerFactory mLoggerFactory;
+        public EliminarCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<EliminarCookieController> logger, ILoggerFactory loggerFactory)
+            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
         {
+            mlogger = logger;
+            mLoggerFactory = loggerFactory;
         }
 
         #region Métodos de eventos
@@ -83,6 +88,7 @@ namespace Gnoss.Web.Login
                 {
                     dominio = DominioAplicacion;
                 }
+                mLoggingService.GuardarLogError($"El dominio para borrar las cookies es: {dominio}", mlogger);
                 if (Request.Cookies.ContainsKey(cookieEnvioKey) || Request.Headers.ContainsKey("nuevoEnvio"))
                 {
                     //Creo una cookie para saber que el resto de dominios ya han sido notificados
@@ -134,12 +140,13 @@ namespace Gnoss.Web.Login
                     };
 
                     string dominio = DominioAplicacion;
-                    if (DominioAplicacion.IndexOf('.', 1) >= 0)
+
+                    if (DominioAplicacion.IndexOf('.', 1) >= 0 && string.IsNullOrEmpty(DominioPaginasAdministracion))
                     {
                         dominio = DominioAplicacion.Substring(DominioAplicacion.IndexOf('.', 1));
                     }
                     cookieUsuarioLogueadoOptions.Domain = dominio;
-
+                    mLoggingService.GuardarLogError($"Dominio de la cookie a eliminar: {dominio}", mlogger);
                     if (mHttpContextAccessor.HttpContext.Request.Scheme.Equals("https"))
                     {
                         cookieUsuarioLogueadoOptions.Secure = true;
@@ -179,7 +186,7 @@ namespace Gnoss.Web.Login
             }
             catch (Exception ex)
             {
-                mLoggingService.GuardarLogError($"Ha habido un error al intentar cerrar la sesion de Keycloak. KEYCLOAK_ERROR: {ex.Message}");
+                mLoggingService.GuardarLogError($"Ha habido un error al intentar cerrar la sesion de Keycloak. KEYCLOAK_ERROR: {ex.Message}", mlogger);
             }
             string redirect = "";
             if ((Request.Query.ContainsKey("redirect") || Request.Headers.ContainsKey("redirect")))

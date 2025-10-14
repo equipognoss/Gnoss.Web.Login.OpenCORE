@@ -1,6 +1,7 @@
 using Es.Riam.AbstractsOpen;
 using Es.Riam.Gnoss.AD.EntityModel;
 using Es.Riam.Gnoss.AD.EntityModelBASE;
+using Es.Riam.Gnoss.AD.Usuarios;
 using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.CL.RelatedVirtuoso;
@@ -8,13 +9,17 @@ using Es.Riam.Gnoss.Util.Configuracion;
 using Es.Riam.Gnoss.Util.General;
 using Es.Riam.Gnoss.Util.Seguridad;
 using Es.Riam.Gnoss.UtilServiciosWeb;
+using Es.Riam.Interfaces.InterfacesOpen;
+using Es.Riam.Open;
 using Es.Riam.OpenReplication;
 using Es.Riam.Util;
 using Gnoss.Web.Login;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,6 +32,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 
 namespace Gnoss.Web.Login
@@ -74,20 +80,31 @@ namespace Gnoss.Web.Login
             services.AddScoped(typeof(UtilServicios));
             services.AddScoped<IServicesUtilVirtuosoAndReplication, ServicesVirtuosoAndBidirectionalReplicationOpen>();
             services.AddScoped(typeof(RelatedVirtuosoCL));
+            services.AddScoped<IAvailableServices, AvailableServicesOpen>();
             services.AddCors(options =>
             {
                 options.AddPolicy(name: "_myAllowSpecificOrigins",
                 builder =>
                 {
-					builder.SetIsOriginAllowed(UtilServicios.ComprobarDominioPermitidoCORS);
-					builder.AllowAnyOrigin();
+                    builder.SetIsOriginAllowed(UtilServicios.ComprobarDominioPermitidoCORS);
                     builder.AllowAnyHeader();
                     builder.AllowAnyMethod();
+                    builder.AllowCredentials();
                 });
             });
 			services.AddRazorPages().AddRazorRuntimeCompilation();
 			services.AddControllersWithViews().AddRazorRuntimeCompilation();
-			string bdType = "";
+
+            var assemblyOpen = Assembly.Load("Gnoss.Web.Login.Open");
+            var externalControllerOpen = new AssemblyPart(assemblyOpen);
+            // ApplicationPartManager
+            services.AddControllers()
+                    .ConfigureApplicationPartManager(apm =>
+                    {
+                        apm.ApplicationParts.Add(externalControllerOpen);
+                    });
+
+            string bdType = "";
             IDictionary environmentVariables = Environment.GetEnvironmentVariables();
             if (environmentVariables.Contains("connectionType"))
             {
@@ -126,10 +143,10 @@ namespace Gnoss.Web.Login
             if (bdType.Equals("0"))
             {
                 services.AddDbContext<EntityContext>(options =>
-                        options.UseSqlServer(acid)
+                        options.UseSqlServer(acid, o => o.UseCompatibilityLevel(110))
                         );
                 services.AddDbContext<EntityContextBASE>(options =>
-                        options.UseSqlServer(baseConnection)
+                        options.UseSqlServer(baseConnection, o => o.UseCompatibilityLevel(110))
 
                         );
             }
@@ -164,10 +181,31 @@ namespace Gnoss.Web.Login
 
             // Resolve the services from the service provider
             var configService = sp.GetService<ConfigService>();
-			var servicesUtilVirtuosoAndReplication = sp.GetService<IServicesUtilVirtuosoAndReplication>();
+            var entityContext = sp.GetService<EntityContext>();
+            var servicesUtilVirtuosoAndReplication = sp.GetService<IServicesUtilVirtuosoAndReplication>();
 			var loggingService = sp.GetService<LoggingService>();
 			var redisCacheWrapper = sp.GetService<RedisCacheWrapper>();
-			services.AddSession(options => {
+            Dictionary<string, string> loginFacebook = ObtenerParametrosLoginExterno(TipoRedSocialLogin.Facebook, entityContext);
+            if (loginFacebook.Count > 0)
+            {
+                services.AddAuthentication(options =>
+                {
+                    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                })
+                    .AddCookie(options =>
+                    {
+                        options.LoginPath = "/login/loginfacebook"; // Must be lowercase
+                    }).AddFacebook(options =>
+                    {
+                        options.CallbackPath = "/login/signin-facebook";
+                        options.AppId = loginFacebook["id"];
+                        options.AppSecret = loginFacebook["clientsecret"];
+                        options.CorrelationCookie.Path = "/login/login/signin-facebook";
+
+                    });
+
+            }
+            services.AddSession(options => {
 				options.IdleTimeout = TimeSpan.FromMinutes(60); // Tiempo de expiración   
 																//options.Cookie.Name = "AppTest";
 																//options.Cookie.HttpOnly = true; // correct initialization
@@ -183,8 +221,8 @@ namespace Gnoss.Web.Login
 
             EstablecerDominioCache(entity);
 
-			UtilServicios.CargarIdiomasPlataforma(entity, loggingService, configService, servicesUtilVirtuosoAndReplication, redisCacheWrapper);
-			UtilServicios.CargarDominiosPermitidosCORS(entity);
+            UtilServicios.CargarIdiomasPlataforma(entityContext, loggingService, configService, servicesUtilVirtuosoAndReplication, redisCacheWrapper, loggerFactory);
+            UtilServicios.CargarDominiosPermitidosCORS(entity);
 			ConfigurarApplicationInsights(configService);
 
             services.AddSwaggerGen(c =>
@@ -215,6 +253,29 @@ namespace Gnoss.Web.Login
             {
                 endpoints.MapControllers();
             });
+        }
+
+        private Dictionary<string, string> ObtenerParametrosLoginExterno(TipoRedSocialLogin pTipoRedSocial, EntityContext pEntityContext)
+        {
+            string key = "login" + pTipoRedSocial.ToString();
+            string parametros = "";
+            if (pEntityContext.ParametroAplicacion.Any(parametro => parametro.Parametro.Equals(key)))
+            {
+                parametros = pEntityContext.ParametroAplicacion.Where(parametro => parametro.Parametro.Equals(key)).First().Valor;
+            }
+
+
+            string[] listaParametros = parametros.Split(new string[] { "@@@" }, StringSplitOptions.RemoveEmptyEntries);
+
+            Dictionary<string, string> parametrosLogin = new Dictionary<string, string>();
+            foreach (string param in listaParametros)
+            {
+                string clave = param.Split(new string[] { "|||" }, StringSplitOptions.RemoveEmptyEntries)[0];
+                string valor = param.Split(new string[] { "|||" }, StringSplitOptions.RemoveEmptyEntries)[1];
+                parametrosLogin.Add(clave, valor);
+            }
+
+            return parametrosLogin;
         }
 
         /// <summary>

@@ -51,8 +51,6 @@ namespace Gnoss.Web.Login
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            LoggingService.ConfigurarLogging(services, Configuration);
-
             // Provider temporal solo para el logger de arranque
             using var tempProvider = services.BuildServiceProvider();
             var loggerFactory = tempProvider.GetRequiredService<ILoggerFactory>();
@@ -256,20 +254,6 @@ namespace Gnoss.Web.Login
 
             if (UtilTelemetry.EstaConfiguradaTelemetria)
             {
-                //Configuración de los logs
-
-                string ubicacionLogs = configService.ObtenerUbicacionLogsLogin();
-
-                int valorInt = 0;
-                if (int.TryParse(ubicacionLogs, out valorInt))
-                {
-                    if (Enum.IsDefined(typeof(UtilTelemetry.UbicacionLogsYTrazas), valorInt))
-                    {
-                        LoggingService.UBICACIONLOGS = (UtilTelemetry.UbicacionLogsYTrazas)valorInt;
-                    }
-                }
-
-
                 //Configuración de las trazas
 
                 string ubicacionTrazas = configService.ObtenerUbicacionTrazasLogin();

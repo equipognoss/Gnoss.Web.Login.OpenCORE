@@ -91,7 +91,7 @@ namespace Gnoss.Web.Login
         #endregion
 
 
-        public ControllerBaseLoginRedesSociales(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ControllerBaseLoginRedesSociales> logger, ILoggerFactory loggerFactory) : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
+        public ControllerBaseLoginRedesSociales(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ControllerBaseLoginRedesSociales> logger, ILoggerFactory loggerFactory) : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
         {
             mlogger = logger;
             mLoggerFactory = loggerFactory;
@@ -225,7 +225,7 @@ namespace Gnoss.Web.Login
                 if (!string.IsNullOrEmpty(ProyectoIDSeleccionado))
                 {
                     Guid proyectoID = new Guid(ProyectoIDSeleccionado);
-                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, null, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
                     GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID),mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                     Proyecto proyecto = gestorProy.ListaProyectos[proyectoID];
@@ -451,7 +451,7 @@ namespace Gnoss.Web.Login
             {
                 if (mParametroProyecto == null)
                 {
-                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, null, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
                     mParametroProyecto = proyectoCL.ObtenerParametrosProyecto(ProyectoSeleccionado.Clave);
                     proyectoCL.Dispose();
                 }

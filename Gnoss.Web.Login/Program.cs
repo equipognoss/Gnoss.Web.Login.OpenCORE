@@ -42,11 +42,20 @@ namespace Gnoss.Web.Login
                 .ConfigureServices((context, services) =>
                 {
                     LoggingService.SuscribirCambios(context, _startupLogger);
-                    _startupLogger.Information("Suscripción a cambios de configuración registrada");
+                    _startupLogger.Information("SuscripciÃ³n a cambios de configuraciÃ³n registrada");
                 })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
+                    webBuilder.ConfigureKestrel((context, options) =>
+                    {
+#if !DEBUG
+                        var apiPort = context.Configuration.GetValue("ApiPort", 8080);
+                        var managementPort = context.Configuration.GetValue("ManagementPort", 8081);
+                        options.ListenAnyIP(apiPort);
+                        options.ListenAnyIP(managementPort);
+#endif
+                    });
                     AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
                 });
     }

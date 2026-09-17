@@ -1,12 +1,9 @@
-using AngleSharp.Common;
 using Es.Riam.AbstractsOpen;
 using Es.Riam.Gnoss.AD.EncapsuladoDatos;
 using Es.Riam.Gnoss.AD.EntityModel;
 using Es.Riam.Gnoss.AD.EntityModel.Models.Peticion;
 using Es.Riam.Gnoss.AD.EntityModel.Models.Solicitud;
 using Es.Riam.Gnoss.AD.EntityModelBASE;
-using Es.Riam.Gnoss.AD.Notificacion;
-using Es.Riam.Gnoss.AD.Organizador.Correo.Model;
 using Es.Riam.Gnoss.AD.ParametroAplicacion;
 using Es.Riam.Gnoss.AD.Peticion;
 using Es.Riam.Gnoss.AD.ServiciosGenerales;
@@ -17,14 +14,10 @@ using Es.Riam.Gnoss.CL.ParametrosAplicacion;
 using Es.Riam.Gnoss.CL.Seguridad;
 using Es.Riam.Gnoss.CL.ServiciosGenerales;
 using Es.Riam.Gnoss.CL.Usuarios;
-using Es.Riam.Gnoss.Elementos.Identidad;
 using Es.Riam.Gnoss.Elementos.Notificacion;
-using Es.Riam.Gnoss.Elementos.Organizador.Correo;
 using Es.Riam.Gnoss.Elementos.ParametroAplicacion;
 using Es.Riam.Gnoss.Elementos.ServiciosGenerales;
-using Es.Riam.Gnoss.Logica.Identidad;
 using Es.Riam.Gnoss.Logica.Notificacion;
-using Es.Riam.Gnoss.Logica.ParametroAplicacion;
 using Es.Riam.Gnoss.Logica.ParametrosProyecto;
 using Es.Riam.Gnoss.Logica.ServiciosGenerales;
 using Es.Riam.Gnoss.Logica.Usuarios;
@@ -38,21 +31,15 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.Amqp.Framing;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Serilog.Core;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Data;
-using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
-using System.Text.Unicode;
+using System.Text.Json;
 using System.Web;
-using System.Web.UI;
 
 namespace Gnoss.Web.Login
 {
@@ -60,12 +47,12 @@ namespace Gnoss.Web.Login
     [Route("[controller]")]
     [EnableCors("_myAllowSpecificOrigins")]
     /// <summary>
-    /// Página para loguear al usuario
+    /// Pï¿½gina para loguear al usuario
     /// </summary>
     public class LoginController : ControllerBaseLogin
     {
         /// <summary>
-        /// DataSet con los parámetros de la aplicación.
+        /// DataSet con los parï¿½metros de la aplicaciï¿½n.
         /// </summary> 
         private List<ParametroAplicacion> mParametroAplicacion;
 
@@ -74,8 +61,8 @@ namespace Gnoss.Web.Login
         private IAvailableServices mAvailableServices;
         private ILogger mlogger;
         private ILoggerFactory mLoggerFactory;
-        public LoginController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, IAvailableServices availableServices, ILogger<LoginController> logger, ILoggerFactory loggerFactory)
-             : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
+        public LoginController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, IAvailableServices availableServices, ILogger<LoginController> logger, ILoggerFactory loggerFactory)
+             : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
         {
             mAvailableServices = availableServices;
             mlogger = logger;
@@ -86,7 +73,7 @@ namespace Gnoss.Web.Login
         #region Metodos de eventos
 
         /// <summary>
-        /// Evento que se produce al cargar la página
+        /// Evento que se produce al cargar la pï¿½gina
         /// </summary>
         [HttpGet, HttpPost]
         public ActionResult Index([FromHeader] string token, [FromHeader] string redirect, Guid proyectoID, string idioma, string baseURL, bool esProyectoPrivado, [FromForm] string usuario, [FromForm] string password)
@@ -124,7 +111,7 @@ namespace Gnoss.Web.Login
             }
             if (!string.IsNullOrEmpty(Request.Query["redirect"]))
             {
-                //Comprobamos que el parametro redirect que se está enviando explicitamente sea valido
+                //Comprobamos que el parametro redirect que se estï¿½ enviando explicitamente sea valido
                 string redirectQuery = Request.Query["redirect"];  
                 if(redirectQuery.Equals(ComprobarRedirectValido(redirectQuery, proyectoID, idioma)))
                 {
@@ -252,7 +239,7 @@ namespace Gnoss.Web.Login
                         string Password = passwd;
                         parametros.Add("Password", Password);
 
-                        /*Hacemos la llamada con usuario y contraseña y nos devuelve el JSON con*/
+                        /*Hacemos la llamada con usuario y contraseï¿½a y nos devuelve el JSON con*/
                         //OK+usuarioID -->logueamos al usuario
                         //KO+Si loguear
                         //KO+No loguear
@@ -292,7 +279,7 @@ namespace Gnoss.Web.Login
                                 if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
                                 {
                                     Guid proyectoID1 = new Guid(Request.Query["proyectoID"]);
-                                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                                    ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, null, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
                                     GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID1), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                                     Proyecto proyecto = gestorProy.ListaProyectos[proyectoID1];
@@ -360,7 +347,7 @@ namespace Gnoss.Web.Login
                         if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
                         {
                             Guid proyectoID1 = new Guid(Request.Query["proyectoID"]);
-                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, null, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
                             GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID1), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                             Proyecto proyecto = gestorProy.ListaProyectos[proyectoID1];
@@ -412,7 +399,7 @@ namespace Gnoss.Web.Login
                         }
                         else
                         {
-                            mLoggingService.GuardarLogError($"La url {redirect1} no es válida. Imposible obtener el dominio. ", mlogger);
+                            mLoggingService.GuardarLogError($"La url {redirect1} no es vï¿½lida. Imposible obtener el dominio. ", mlogger);
                         }
 
                         EnviarCookies(dominioDeVuelta, redirect1, token1, mismoUsuarioLogueado);
@@ -543,7 +530,7 @@ namespace Gnoss.Web.Login
                 pRedirect = pRedirect.TrimEnd('/');
                 if (Request.Headers.ContainsKey("Referer") && !Request.Headers["Referer"].ToString().Contains(UtilIdiomas.GetText("URLSEM", "DESCONECTAR")))
                 {
-                    // Redirigimos a la página original con el error, no a la que hay que redirigir, no tiene sentido.
+                    // Redirigimos a la pï¿½gina original con el error, no a la que hay que redirigir, no tiene sentido.
                     Response.Redirect(Request.Headers["Referer"].ToString() + pAlmohadillaerror);
                 }
                 else
@@ -592,7 +579,7 @@ namespace Gnoss.Web.Login
 
         private bool ComprobarMismoUsuarioLogueado(string pLoginUsuario)
         {
-            //Compruebo si se está logueando el mismo usuario que ya estaba logueado
+            //Compruebo si se estï¿½ logueando el mismo usuario que ya estaba logueado
             string cookieValue = Request.Cookies["_UsuarioActual"];
             return Request.Cookies.ContainsKey("_UsuarioActual") && pLoginUsuario.ToLower().Equals(cookieValue);
         }
@@ -658,9 +645,9 @@ namespace Gnoss.Web.Login
         #region Metodos generales
         
         /// <summary>
-        /// Envia las cookies al dominio que hizo la petición por medio de una redirección a obtenercookie.aspx
+        /// Envia las cookies al dominio que hizo la peticiï¿½n por medio de una redirecciï¿½n a obtenercookie.aspx
         /// </summary>
-        /// <param name="pDominioDeVuelta">Dominio que hizo la petición</param>
+        /// <param name="pDominioDeVuelta">Dominio que hizo la peticiï¿½n</param>
         /// <param name="pRedirect">URL a la que hay que redirigir al usuario una vez finalice el login</param>
         /// <param name="pToken">Token generado por el dominio de origen</param>
         /// <param name="pMismoUsuarioLogueado">Verdad si el usuario ya estaba logueado previamente</param>
@@ -722,7 +709,7 @@ namespace Gnoss.Web.Login
             //jsonEstadoLogin.Correcto=true y jsonEstadoLogin.InfoExtra con JsonUsuario
             //2.- Login KO (no existe el usuario en el servicio externo)
             //jsonEstadoLogin.Correcto=false y jsonEstadoLogin.InfoExtra vacio
-            //3.- Login sin activar (el login es correcto pero no está activado, hay que mostrar el popup)
+            //3.- Login sin activar (el login es correcto pero no estï¿½ activado, hay que mostrar el popup)
             //jsonEstadoLogin.Correcto=false y jsonEstadoLogin.InfoExtra con usuario
 
             if (jsonEstadoLogin != null)
@@ -736,8 +723,8 @@ namespace Gnoss.Web.Login
                     }
                     try
                     {
-                        //Si no se loguea en el servicio pero devuelve usuario (está sin activar)
-                        JsonUsuario jsonNuevoUsuario = JsonConvert.DeserializeObject<JsonUsuario>(jsonEstadoLogin.InfoExtra);
+                        //Si no se loguea en el servicio pero devuelve usuario (estï¿½ sin activar)
+                        JsonUsuario jsonNuevoUsuario = JsonSerializer.Deserialize<JsonUsuario>(jsonEstadoLogin.InfoExtra);
                     }
                     catch (Exception)
                     {
@@ -768,11 +755,11 @@ namespace Gnoss.Web.Login
 
                     if (usuarioDWLogin.ListaUsuario.Count == 0)
                     {
-                        JsonUsuario jsonNuevoUsuario = JsonConvert.DeserializeObject<JsonUsuario>(jsonEstadoLogin.InfoExtra);
+                        JsonUsuario jsonNuevoUsuario = JsonSerializer.Deserialize<JsonUsuario>(jsonEstadoLogin.InfoExtra);
 
                         if (jsonNuevoUsuario != null)
                         {
-                            //Creamos el ususario en la aplicación
+                            //Creamos el ususario en la aplicaciï¿½n
                             string loginUsuario = UtilCadenas.LimpiarCaracteresNombreCortoRegistro(jsonNuevoUsuario.name) + '-' + UtilCadenas.LimpiarCaracteresNombreCortoRegistro(jsonNuevoUsuario.last_name);
 
                             if (loginUsuario.Length > 12)
@@ -895,7 +882,7 @@ namespace Gnoss.Web.Login
                         if (!string.IsNullOrEmpty(Request.Query["proyectoID"]))
                         {
                             Guid proyectoID = new Guid(Request.Query["proyectoID"]);
-                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+                            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, null, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
                             GestionProyecto gestorProy = new GestionProyecto(proyectoCL.ObtenerProyectoPorID(proyectoID), mLoggingService, mEntityContext, mLoggerFactory.CreateLogger<GestionProyecto>(), mLoggerFactory);
 
                             Proyecto proyecto = gestorProy.ListaProyectos[proyectoID];
@@ -965,7 +952,7 @@ namespace Gnoss.Web.Login
             Es.Riam.Gnoss.Recursos.UtilIdiomas utilIdiomas = new Es.Riam.Gnoss.Recursos.UtilIdiomas(pIdioma, mLoggingService, mEntityContext, mConfigService, mRedisCacheWrapper, mLoggerFactory.CreateLogger<Es.Riam.Gnoss.Recursos.UtilIdiomas>(), mLoggerFactory);
             //Genera el token para la doble autenticacion
             string tokenAutenticacion = GenerarToken();
-            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, mVirtuosoAD, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
+            ProyectoCL proyectoCL = new ProyectoCL(mEntityContext, mLoggingService, mRedisCacheWrapper, mConfigService, null, mServicesUtilVirtuosoAndReplication, mLoggerFactory.CreateLogger<ProyectoCL>(), mLoggerFactory);
             //Agrega el token a cache durante 10 minutos
             proyectoCL.AgregarObjetoCache($"DobleAutenticacion_{tokenAutenticacion}", pLogin, 600);
 
@@ -1009,7 +996,7 @@ namespace Gnoss.Web.Login
                 }
             }
 
-            //Redirige al usuario a la página de autenticacion
+            //Redirige al usuario a la pï¿½gina de autenticacion
             Response.Redirect($"{urlBase}/{utilIdiomas.GetText("URLSEM", "AUTENTICACIONDOBLEFACTOR")}{redireccion}");
         }
 
@@ -1068,7 +1055,7 @@ namespace Gnoss.Web.Login
 
         #endregion
 
-        #region Métodos auxiliares Servicio Login Externo
+        #region Mï¿½todos auxiliares Servicio Login Externo
 
         [NonAction]
         private JsonLoginExterno PeticionServicioLoginExterno(string pUrl, UtilWeb.Metodo pMetodo, Dictionary<string, string> pParametros)
@@ -1086,95 +1073,24 @@ namespace Gnoss.Web.Login
                     parametros += claveParametro + "=" + HttpUtility.UrlEncode(pParametros[claveParametro]);
                 }
             }
-            JsonLoginExterno respuesta = WebRequest(pMetodo, urlCreacion, parametros, "application/x-www-form-urlencoded", "");
+            JsonLoginExterno respuesta = WebRequest(pMetodo, urlCreacion, parametros, "application/x-www-form-urlencoded");
             return respuesta;
         }
 
         /// <summary>
-        /// Envía una petición web
+        /// Envï¿½a una peticiï¿½n web
         /// </summary>
-        /// <param name="pMetodo">Método Http (GET, POST, PUT, etc)</param>
+        /// <param name="pMetodo">Mï¿½todo Http (GET, POST, PUT, etc)</param>
         /// <param name="pUrl">Url completa del recurso web</param>
-        /// <param name="pPostData">Datos para enviar en la petición (en formato querystring)</param>
+        /// <param name="pPostData">Datos para enviar en la peticiï¿½n (en formato querystring)</param>
         /// <returns>Respuesta del servidor</returns>
         [NonAction]
-        private static JsonLoginExterno WebRequest(UtilWeb.Metodo pMetodo, string pUrl, string pPostData, string pContentType, string pAccept)
+        private static JsonLoginExterno WebRequest(UtilWeb.Metodo pMetodo, string pUrl, string pPostData, string pContentType)
         {
-            HttpWebRequest webRequest = null;
-            StreamWriter requestWriter = null;
-            JsonLoginExterno responseData = null;
+            string responseData = UtilWeb.WebRequestStringData(pMetodo, pUrl, pPostData, pContentType, true, null);
 
-            webRequest = System.Net.WebRequest.Create(pUrl) as HttpWebRequest;
-            webRequest.Method = pMetodo.ToString();
-            webRequest.ServicePoint.Expect100Continue = false;
-            webRequest.Timeout = 200000;
-            webRequest.UserAgent = UtilWeb.GenerarUserAgent();
+            JsonLoginExterno loginUsuario = JsonSerializer.Deserialize<JsonLoginExterno>(responseData);  
 
-            if (!string.IsNullOrEmpty(pContentType))
-            {
-                webRequest.ContentType = pContentType;
-            }
-            if (!string.IsNullOrEmpty(pAccept))
-            {
-                webRequest.Accept = pAccept;
-            }
-
-
-            if (pMetodo == UtilWeb.Metodo.POST || pMetodo == UtilWeb.Metodo.PUT || pMetodo == UtilWeb.Metodo.DELETE)
-            {
-                //Enviamos los datos
-                requestWriter = new StreamWriter(webRequest.GetRequestStream());
-                try
-                {
-                    requestWriter.Write(pPostData);
-                }
-                catch
-                {
-                    throw;
-                }
-                finally
-                {
-                    requestWriter.Close();
-                    requestWriter = null;
-                }
-            }
-            responseData = WebResponseGet(webRequest);
-
-            webRequest = null;
-
-            return responseData;
-        }
-
-        /// <summary>
-        /// Procesa la respuesta del servidor a una petición
-        /// </summary>
-        /// <param name="pWebRequest">Petición Http</param>
-        /// <returns>Datos de la respuesta del servidor</returns>
-        [NonAction]
-        private static JsonLoginExterno WebResponseGet(HttpWebRequest pWebRequest)
-        {
-            StreamReader responseReader = null;
-            string responseData = "";
-            JsonLoginExterno loginUsuario = null;
-
-            try
-            {
-                responseReader = new StreamReader(pWebRequest.GetResponse().GetResponseStream(), Encoding.UTF8);
-                responseData = responseReader.ReadToEnd();
-                loginUsuario = JsonConvert.DeserializeObject<JsonLoginExterno>(responseData);
-            }
-            catch (WebException webEx)
-            {
-                StreamReader reader = new StreamReader(webEx.Response.GetResponseStream());
-                string error = reader.ReadToEnd();
-                throw;
-            }
-            finally
-            {
-                pWebRequest.GetResponse().GetResponseStream().Close();
-                responseReader.Close();
-                responseReader = null;
-            }
             return loginUsuario;
         }
 
@@ -1208,7 +1124,7 @@ namespace Gnoss.Web.Login
 
 
         /// <summary>
-        /// DataSet con los parámetros de la aplicación.
+        /// DataSet con los parï¿½metros de la aplicaciï¿½n.
         /// </summary>
         public List<ParametroAplicacion> ParametroAplicacionDS
         {

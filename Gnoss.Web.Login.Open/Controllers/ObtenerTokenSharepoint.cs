@@ -50,7 +50,7 @@ namespace Gnoss.Web.Login
     {
         private ILogger mlogger;
         private ILoggerFactory mLoggerFactory;
-        public ObtenerTokenSharepoint(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ObtenerTokenSharepoint> logger, ILoggerFactory loggerFactory) : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication,logger,loggerFactory)
+        public ObtenerTokenSharepoint(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ObtenerTokenSharepoint> logger, ILoggerFactory loggerFactory) : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
         {
             mlogger = logger;
             mLoggerFactory = loggerFactory;
@@ -69,7 +69,7 @@ namespace Gnoss.Web.Login
             string scope = "offline_access " + HttpUtility.UrlEncode("https://graph.microsoft.com/.default");
             string requestParameters = $"client_id={clientID}&redirect_uri={redirectUri}&scope={scope}&grant_type=authorization_code&code={code}&client_secret={clientSecret}";
             byte[] byteData = Encoding.UTF8.GetBytes(requestParameters);
-            string response = UtilGeneral.WebRequest("POST", peticion, byteData);
+            string response = UtilWeb.WebRequest("POST", peticion, byteData);
             dynamic tokenObj = JsonConvert.DeserializeObject(response);
             string token = tokenObj.access_token;
             string refresh_token = tokenObj.refresh_token;

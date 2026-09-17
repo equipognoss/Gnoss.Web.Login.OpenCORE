@@ -1,4 +1,3 @@
-using DotNetOpenAuth.OAuth2;
 using Es.Riam.AbstractsOpen;
 using Es.Riam.Gnoss.AD.EntityModel;
 using Es.Riam.Gnoss.AD.EntityModelBASE;
@@ -6,26 +5,20 @@ using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.Util.Configuracion;
 using Es.Riam.Gnoss.Util.General;
-using Es.Riam.Util;
 using Es.Riam.Web.Util;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Serilog.Core;
-using Serilog.Sinks.Http;
 using System;
 using System.Collections.Generic;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Gnoss.Web.Login
 {
 
     /// <summary>
-    /// Página que elimina las cookies de todos los dominios en los que el usuario ha estado
+    /// Pï¿½gina que elimina las cookies de todos los dominios en los que el usuario ha estado
     /// </summary>
     [Controller]
     [Route("[controller]")]
@@ -33,17 +26,17 @@ namespace Gnoss.Web.Login
     {
         private ILogger mlogger;
         private ILoggerFactory mLoggerFactory;
-        public EliminarCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<EliminarCookieController> logger, ILoggerFactory loggerFactory)
-            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
+        public EliminarCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<EliminarCookieController> logger, ILoggerFactory loggerFactory)
+            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
         {
             mlogger = logger;
             mLoggerFactory = loggerFactory;
         }
 
-        #region Métodos de eventos
+        #region Mï¿½todos de eventos
 
         /// <summary>
-        /// Método page load
+        /// Mï¿½todo page load
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -94,7 +87,7 @@ namespace Gnoss.Web.Login
                     //Creo una cookie para saber que el resto de dominios ya han sido notificados
                     mHttpContextAccessor.HttpContext.Response.Cookies.Append(cookieEnvioKey, "true", new CookieOptions { Expires = DateTime.Now.AddDays(1) });
 
-                    //El usuario se acaba de conectar, si habia estado en otros dominios, elimino su sesión
+                    //El usuario se acaba de conectar, si habia estado en otros dominios, elimino su sesiï¿½n
                     listaSrcIframes.AddRange(EliminarCookieRestoDominios(dominio));
                 }
 
@@ -220,10 +213,10 @@ namespace Gnoss.Web.Login
 
         #endregion
 
-        #region Métodos generales
+        #region Mï¿½todos generales
 
         /// <summary>
-        /// Método que elimina las cookies de todos los dominios
+        /// Mï¿½todo que elimina las cookies de todos los dominios
         /// </summary>
         [NonAction]
         private List<string> EliminarCookieRestoDominios(string pDominio)
@@ -239,7 +232,7 @@ namespace Gnoss.Web.Login
 
             if ((dominios != null) && (dominios.Values.Count > 0))
             {
-                //Recorre todos los dominios que hay en la cookie dominios y accede a la página eliminarCookie.aspx de cada uno de ellos, que elimina sus cookies
+                //Recorre todos los dominios que hay en la cookie dominios y accede a la pï¿½gina eliminarCookie.aspx de cada uno de ellos, que elimina sus cookies
                 foreach (string dominio in dominios.Keys)
                 {
                     if (string.IsNullOrEmpty(pDominio) || !(dominio.Equals(dominioSinHTTPS) || dominio.Equals(dominioConHTTPS)))

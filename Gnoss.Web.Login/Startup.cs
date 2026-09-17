@@ -5,6 +5,7 @@ using Es.Riam.Gnoss.AD.Usuarios;
 using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
 using Es.Riam.Gnoss.CL.RelatedVirtuoso;
+using Es.Riam.Gnoss.HealthChecks;
 using Es.Riam.Gnoss.Util.Configuracion;
 using Es.Riam.Gnoss.Util.General;
 using Es.Riam.Gnoss.Util.Seguridad;
@@ -13,27 +14,22 @@ using Es.Riam.Interfaces.InterfacesOpen;
 using Es.Riam.Open;
 using Es.Riam.OpenReplication;
 using Es.Riam.Util;
-using Gnoss.Web.Login;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
-using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
+using Microsoft.OpenApi;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 
 namespace Gnoss.Web.Login
 {
@@ -58,16 +54,14 @@ namespace Gnoss.Web.Login
             services.AddMvc();
             services.AddControllers();
             services.AddHttpContextAccessor();
-            services.AddScoped(typeof(UtilTelemetry));
             services.AddScoped(typeof(Usuario));
             services.AddScoped(typeof(UtilPeticion));
             services.AddScoped(typeof(Conexion));
             services.AddScoped(typeof(UtilGeneral));
             services.AddScoped(typeof(LoggingService));
-            services.AddScoped(typeof(RedisCacheWrapper));
+            services.AddSingleton(typeof(RedisCacheWrapper));
             services.AddScoped(typeof(Configuracion));
             services.AddScoped(typeof(GnossCache));
-            services.AddScoped(typeof(VirtuosoAD));
             services.AddScoped(typeof(UtilServicios));
             services.AddScoped<IServicesUtilVirtuosoAndReplication, ServicesVirtuosoAndBidirectionalReplicationOpen>();
             services.AddScoped(typeof(RelatedVirtuosoCL));
@@ -164,14 +158,16 @@ namespace Gnoss.Web.Login
 
 			});
 
-            var entity = sp.GetService<EntityContext>();
             LoggingService.RUTA_DIRECTORIO_ERROR = Path.Combine(mEnvironment.ContentRootPath, "logs");
 
-            EstablecerDominioCache(entity);
+            EstablecerDominioCache(entityContext);
 
             UtilServicios.CargarIdiomasPlataforma(entityContext, loggingService, configService, servicesUtilVirtuosoAndReplication, redisCacheWrapper, loggerFactory);
-            UtilServicios.CargarDominiosPermitidosCORS(entity);
-			ConfigurarApplicationInsights(configService);
+            UtilServicios.CargarDominiosPermitidosCORS(entityContext);
+            services.AddHealthChecks()
+                .AddGnossDatabaseHealthCheck<EntityContext>(bdType, configService.ObtenerSqlConnectionString())
+                .AddGnossRedisHealthCheck(configService.ObtenerConexionRedisIPMaster("redis"))
+                .AddGnossVirtuosoHealthCheck(configService.ObtenerVirtuosoConnectionString().ConnectionString);
 
             services.AddSwaggerGen(c =>
             {
@@ -185,9 +181,9 @@ namespace Gnoss.Web.Login
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
-                app.UseSwagger();
-                app.UseSwaggerUI(c => c.SwaggerEndpoint("v1/swagger.json", "Gnoss.Web.Login v1"));
             }
+            app.UseSwagger();
+            app.UseSwaggerUI(c => c.SwaggerEndpoint("v1/swagger.json", "Gnoss.Web.Login v1"));
 
             app.UseHttpsRedirection();
 
@@ -197,8 +193,10 @@ namespace Gnoss.Web.Login
 			app.UseAuthorization();
 			app.UseSession();
 			app.UseGnossMiddleware();
+            var managementPort = Configuration.GetValue("ManagementPort", 8081);
             app.UseEndpoints(endpoints =>
             {
+                endpoints.MapGnossHealthEndpoints(managementPort);
                 endpoints.MapControllers();
             });
         }
@@ -241,34 +239,6 @@ namespace Gnoss.Web.Login
             }
 
             BaseCL.DominioEstatico = dominio;
-        }
-
-        private void ConfigurarApplicationInsights(ConfigService configService)
-        {
-            string valor = configService.ObtenerImplementationKeyLogin();
-
-            if (!string.IsNullOrEmpty(valor))
-            {
-                Microsoft.ApplicationInsights.Extensibility.TelemetryConfiguration.Active.InstrumentationKey = valor.ToLower();
-            }
-
-            if (UtilTelemetry.EstaConfiguradaTelemetria)
-            {
-                //Configuración de las trazas
-
-                string ubicacionTrazas = configService.ObtenerUbicacionTrazasLogin();
-
-                int valorInt2 = 0;
-                if (int.TryParse(ubicacionTrazas, out valorInt2))
-                {
-                    if (Enum.IsDefined(typeof(UtilTelemetry.UbicacionLogsYTrazas), valorInt2))
-                    {
-                        LoggingService.UBICACIONTRAZA = (UtilTelemetry.UbicacionLogsYTrazas)valorInt2;
-                    }
-                }
-
-            }
-
         }
     }
 }

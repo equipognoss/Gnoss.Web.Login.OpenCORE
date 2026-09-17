@@ -20,23 +20,23 @@ namespace Gnoss.Web.Login
     [Controller]
     [Route("[controller]")]
     /// <summary>
-    /// Página para crear la cookie del usuario actual que se acaba de loguear en un dominio
+    /// Pï¿½gina para crear la cookie del usuario actual que se acaba de loguear en un dominio
     /// </summary>
     public class CrearCookieController : ControllerBaseLogin
     {
         private ILogger mlogger;
         private ILoggerFactory mLoggerFactory;
-        public CrearCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<CrearCookieController> logger, ILoggerFactory loggerFactory)
-            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
+        public CrearCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<CrearCookieController> logger, ILoggerFactory loggerFactory)
+            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
         {
             mlogger = logger;
             mLoggerFactory = loggerFactory;
         }
 
-        #region Métodos de eventos
+        #region Mï¿½todos de eventos
 
         /// <summary>
-        /// Método page load
+        /// Mï¿½todo page load
         /// </summary>
         /// <param name="sender">sender</param>
         /// <param name="e">e</param>
@@ -108,7 +108,7 @@ namespace Gnoss.Web.Login
 
         #endregion
 
-        #region Métodos generales
+        #region Mï¿½todos generales
         [NonAction]
         private void AgregarIframe(string pUrl, string pQuery)
         {

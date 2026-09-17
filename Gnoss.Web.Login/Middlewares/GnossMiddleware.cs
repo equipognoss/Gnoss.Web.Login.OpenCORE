@@ -12,10 +12,10 @@ namespace Gnoss.Web.Login
 {
     public class GnossMiddleware
     {
-        private IHostingEnvironment mEnv;
+        private IWebHostEnvironment mEnv;
         private readonly RequestDelegate _next;
 
-        public GnossMiddleware(RequestDelegate next, IHostingEnvironment env)
+        public GnossMiddleware(RequestDelegate next, IWebHostEnvironment env)
         {
             _next = next;
             mEnv = env;

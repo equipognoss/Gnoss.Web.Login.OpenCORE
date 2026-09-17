@@ -1,42 +1,18 @@
 ﻿using Es.Riam.AbstractsOpen;
-using Es.Riam.Gnoss.AD.EncapsuladoDatos;
 using Es.Riam.Gnoss.AD.EntityModel;
 using Es.Riam.Gnoss.AD.EntityModelBASE;
-using Es.Riam.Gnoss.AD.ParametroAplicacion;
-using Es.Riam.Gnoss.AD.Usuarios;
 using Es.Riam.Gnoss.AD.Virtuoso;
 using Es.Riam.Gnoss.CL;
-using Es.Riam.Gnoss.CL.ParametrosAplicacion;
-using Es.Riam.Gnoss.CL.ServiciosGenerales;
-using Es.Riam.Gnoss.Elementos.Identidad;
-using Es.Riam.Gnoss.Elementos.ParametroAplicacion;
 using Es.Riam.Gnoss.Logica.ParametroAplicacion;
-using Es.Riam.Gnoss.Logica.ServiciosGenerales;
-using Es.Riam.Gnoss.Logica.Usuarios;
-using Es.Riam.Gnoss.Recursos;
 using Es.Riam.Gnoss.Util.Configuracion;
 using Es.Riam.Gnoss.Util.General;
-using Es.Riam.Gnoss.Web.Controles;
-using Es.Riam.Gnoss.Web.Controles.ServiciosGenerales;
-using Es.Riam.Util;
-using Es.Riam.Web.Util;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Serilog.Core;
 using System;
-using System.Collections.Generic;
-using System.Configuration;
-using System.Data;
-using System.IO;
-using System.Linq;
-using System.Text.Encodings.Web;
-using System.Text.Unicode;
 using System.Web;
-using System.Xml;
 
 namespace Gnoss.Web.Login
 {
@@ -47,8 +23,8 @@ namespace Gnoss.Web.Login
     {
         private ILogger mlogger;
         private ILoggerFactory mLoggerFactory;
-        public LoginSharepointController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<LoginSharepointController> logger, ILoggerFactory loggerFactory) 
-            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
+        public LoginSharepointController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<LoginSharepointController> logger, ILoggerFactory loggerFactory) 
+            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
         {
             mlogger = logger;
             mLoggerFactory = loggerFactory;
@@ -74,10 +50,6 @@ namespace Gnoss.Web.Login
                 if (!string.IsNullOrEmpty(clientID))
                 {
                     string url = $"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={clientID}&response_type=code&redirect_uri={redirectUri}&response_mode=query&scope={scope}";
-                    Response.Headers.Add("Access-Control-Allow-Origin", "*");
-                    Response.Headers.Add("Access-Control-Allow-Credentials", "true");
-                    Response.Headers.Add("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS,POST,PUT");
-                    Response.Headers.Add("Access-Control-Allow-Headers", "Access-Control-Allow-Headers, Origin,Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers");
                     return Redirect(url);
                 }
             }

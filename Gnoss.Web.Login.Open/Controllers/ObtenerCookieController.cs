@@ -25,7 +25,7 @@ namespace Gnoss.Web.Login
 {
 
     /// <summary>
-    /// Página que lee la cookie del usuario (si la tiene) y se la envía a otro dominio
+    /// Pï¿½gina que lee la cookie del usuario (si la tiene) y se la envï¿½a a otro dominio
     /// </summary>
     [Controller]
     [Route("[controller]")]
@@ -33,17 +33,17 @@ namespace Gnoss.Web.Login
     {
         private ILogger mlogger;
         private ILoggerFactory mLoggerFactory;
-        public ObtenerCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, VirtuosoAD virtuosoAD, IHostingEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ObtenerCookieController> logger, ILoggerFactory loggerFactory)
-            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, virtuosoAD, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
+        public ObtenerCookieController(LoggingService loggingService, IHttpContextAccessor httpContextAccessor, EntityContext entityContext, ConfigService configService, RedisCacheWrapper redisCacheWrapper, GnossCache gnossCache, IWebHostEnvironment env, EntityContextBASE entityContextBASE, IServicesUtilVirtuosoAndReplication servicesUtilVirtuosoAndReplication, ILogger<ObtenerCookieController> logger, ILoggerFactory loggerFactory)
+            : base(loggingService, httpContextAccessor, entityContext, configService, redisCacheWrapper, gnossCache, env, entityContextBASE, servicesUtilVirtuosoAndReplication, logger, loggerFactory)
         {
             mlogger = logger;
             mLoggerFactory = loggerFactory;
         }
 
-        #region Métodos de eventos
+        #region Mï¿½todos de eventos
 
         /// <summary>
-        /// Método page load
+        /// MÃ©todo page load
         /// </summary>
         /// <param name="sender">sender</param>
         /// <param name="e">e</param>
@@ -64,16 +64,6 @@ namespace Gnoss.Web.Login
                 extenderFechaCookie = true;
             }
 
-            string dominio = "*";
-
-            if (Request.Headers.ContainsKey("Referer"))
-            {
-                dominio = UtilDominios.ObtenerDominioUrl(Request.Headers["Referer"], true);
-            }
-
-            Response.Headers.Add("Access-Control-Allow-Origin", dominio);
-            Response.Headers.Add("Access-Control-Allow-Credentials", "true");
-
             if (cookieRewrite != null && cookieRewrite.Count > 0)
             {
                 mPersonaID = new Guid(cookieRewrite["personaID"]);
@@ -90,7 +80,7 @@ namespace Gnoss.Web.Login
                 {
                     if (mMantenerConectado)
                     {
-                        //Así la cookie nunca caduca
+                        //Asï¿½ la cookie nunca caduca
                         caduca = DateTime.MaxValue;
                     }
                     CookieOptions cookieUsuarioOptions = new CookieOptions();
@@ -141,6 +131,20 @@ namespace Gnoss.Web.Login
                 {
                     eliminarCookie = "&eliminarCookie=" + hashQuery["eliminarCookie"];
                 }
+            }
+
+            //Comprobamos que el dominio al que se va a redirigir y al que se van a enviar los datos de sesion sea un dominio valido
+            Guid proyectoID = Guid.Empty;
+            if (Request.Query.ContainsKey("proyectoID"))
+            {
+                Guid.TryParse(Request.Query["proyectoID"], out proyectoID);
+            }
+            string idioma = !string.IsNullOrEmpty(mIdioma) ? mIdioma : "es";
+
+            url = ComprobarRedirectValido(url, proyectoID, idioma);
+            if (!string.IsNullOrEmpty(redirect))
+            {
+                redirect = ComprobarRedirectValido(redirect, proyectoID, idioma);
             }
 
             RedireccionarADominioDeOrigen(url, redirect, token, eliminarCookie);

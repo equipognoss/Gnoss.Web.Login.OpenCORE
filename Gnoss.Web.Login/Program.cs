@@ -8,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
 
 namespace Gnoss.Web.Login
 {
@@ -43,7 +42,7 @@ namespace Gnoss.Web.Login
                 .ConfigureServices((context, services) =>
                 {
                     LoggingService.SuscribirCambios(context, _startupLogger);
-                    _startupLogger.Information("Suscripción a cambios de configuración registrada");
+                    _startupLogger.Information("Suscripci�n a cambios de configuraci�n registrada");
                 })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
